@@ -27,7 +27,7 @@ local classColors  = ns.classColors
 
 local POOL_KEY     = "Cooldowns_Row"
 local HEADER_H     = 22     -- header strip height (px)
-local ROW_H        = 26     -- default height of one cooldown row
+local DEFAULT_ROW_H = 26    -- fallback row height when not configured
 local ROW_PAD      = 1      -- vertical gap between rows
 local MIN_W        = 180    -- minimum group frame width
 local DEFAULT_W    = 260
@@ -51,7 +51,7 @@ local flatBackdrop = {
 
 LibFramePool:CreatePool(POOL_KEY, function(parent)
     local row = CreateFrame("Frame", nil, parent)
-    row:SetHeight(ROW_H)
+    row:SetHeight(DEFAULT_ROW_H)
 
     -- Row background
     local bg = row:CreateTexture(nil, "BACKGROUND")
@@ -70,7 +70,7 @@ LibFramePool:CreatePool(POOL_KEY, function(parent)
     row.bar = bar
 
     -- Spell icon
-    local ICON_SIZE = ROW_H - 4
+    local ICON_SIZE = DEFAULT_ROW_H - 4
     local icon = row:CreateTexture(nil, "ARTWORK")
     icon:SetSize(ICON_SIZE, ICON_SIZE)
     icon:SetPoint("LEFT", row, "LEFT", 2, 0)
@@ -169,12 +169,15 @@ local function OnGroupUpdate(frame, elapsed)
 
     -- Clamp row height to valid range.
     local rowH = math.max(MIN_ROW_H, math.min(MAX_ROW_H,
-        gConfig.rowHeight or ROW_H))
+        gConfig.rowHeight or DEFAULT_ROW_H))
+
+    local spellGroupSpacing = math.max(0, gConfig.spellGroupSpacing or 4)
 
     local frameW   = frame:GetWidth()
     local cooldowns = Cooldowns:GetActiveCooldowns(
         gConfig.enabledSpells or {},
-        gConfig.roleFilter)
+        gConfig.roleFilter,
+        gConfig.spellRoleFilter)
 
     -- Filter out "ready" entries when showReady is disabled.
     local rows = {}
@@ -198,22 +201,27 @@ local function OnGroupUpdate(frame, elapsed)
     end
 
     -- Update content and layout.
+    -- yOffset tracks the top-edge of the next row, starting just below the header.
+    local yOffset = HEADER_H
     for i, cd in ipairs(rows) do
         local row = frame.activeRows[i]
+        -- Insert configurable spacing between groups of the same spell.
+        if i > 1 and cd.spellID ~= rows[i - 1].spellID then
+            yOffset = yOffset + spellGroupSpacing
+        end
         row:SetWidth(frameW)
         row:SetHeight(rowH)
         -- Resize the icon proportionally.
         row.icon:SetSize(rowH - 4, rowH - 4)
         UpdateRow(row, cd, frameW)
         row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", frame, "TOPLEFT",
-            0, -(HEADER_H + (i - 1) * (rowH + ROW_PAD)))
+        row:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -yOffset)
         row:Show()
+        yOffset = yOffset + rowH + ROW_PAD
     end
 
-    -- Resize the container to exactly fit its rows.
-    local totalH = HEADER_H + #rows * (rowH + ROW_PAD)
-    frame:SetHeight(math.max(HEADER_H + 4, totalH))
+    -- Resize the container to exactly fit its rows plus all inter-group gaps.
+    frame:SetHeight(math.max(HEADER_H + 4, yOffset))
 end
 
 function ns.CreateGroupFrame(groupName)

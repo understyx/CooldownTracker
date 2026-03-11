@@ -2,9 +2,10 @@
 -- Main addon backbone: event handling, roster management, cooldown state.
 --
 -- Public API (via ns.Cooldowns):
---   Cooldowns:GetActiveCooldowns(enabledSpells[, roleFilter])  → sorted list of cooldown entries
---   Cooldowns:GetSpellDisplayName(spellID)                     → localized spell name (cached)
---   ns.OpenConfig()                                            → opens the AceConfigDialog
+--   Cooldowns:GetActiveCooldowns(enabledSpells[, roleFilter[, spellRoleFilter]])
+--       → sorted list of cooldown entries, grouped by spellID
+--   Cooldowns:GetSpellDisplayName(spellID)  → localized spell name (cached)
+--   ns.OpenConfig()                         → opens the AceConfigDialog
 --
 -- Talent handling strategy:
 --   Common spells (tReq = nil/false) are seeded immediately when a player
@@ -341,19 +342,25 @@ end
 --- Returns a sorted list of cooldown entries whose spellID appears in
 --- `enabledSpells`.  Each entry is a plain table:
 ---   { srcName, spellID, timeLeft, dur, destName, icon, className }
---- Sorted: active cooldowns (timeLeft > 0) first, ascending by time left;
---- then ready spells (timeLeft <= 0) after.
 ---
---- Optional `roleFilter` table: keys are role names (e.g. "tank", "healer",
---- "melee", "caster"), values are true to include that role.  If the table
---- is nil or empty every role is shown.  Roles are resolved via
---- LibGroupTalents-1.0; units whose role cannot be determined are always
---- included (fail-open).
-function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter)
+--- Sorted by spellID so the same spell from multiple players is grouped
+--- together.  Within each spell group, active cooldowns (timeLeft > 0) come
+--- first sorted by time remaining (soonest first); ready spells follow sorted
+--- by player name for a stable display order.
+---
+--- Optional `roleFilter` table: keys are role names ("tank", "healer",
+--- "melee", "caster"), values are true to include.  If nil/empty every role
+--- is shown.  Roles are resolved via LibGroupTalents-1.0; units whose role
+--- cannot be determined are always included (fail-open).
+---
+--- Optional `spellRoleFilter` table: spellRoleFilter[spellID] = { tank=true,
+--- ... }.  When set for a spell, only players whose role appears in the table
+--- have that spell shown.  An absent or empty sub-table means no restriction.
+function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilter)
     local result = {}
     local now    = GetTime()
 
-    -- Pre-compute whether any role filter is active.
+    -- Pre-compute whether any unit-level role filter is active.
     local hasRoleFilter = false
     if roleFilter then
         for _, v in pairs(roleFilter) do
@@ -362,7 +369,7 @@ function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter)
     end
 
     for unitName, state in pairs(cdState) do
-        -- Role filter: skip units whose role is not selected.
+        -- Unit-level role filter: skip units whose role is not selected.
         local includeUnit = true
         if hasRoleFilter then
             local rEntry = roster[unitName]
@@ -378,34 +385,62 @@ function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter)
         if includeUnit then
             for spellID, info in pairs(state) do
                 if enabledSpells[spellID] and info.expTime then
-                    local timeLeft = info.expTime - now
-                    if not spellIconCache[spellID] then
-                        spellIconCache[spellID] = select(3, GetSpellInfo(spellID))
+                    -- Per-spell role filter: if this spell has role restrictions,
+                    -- only include the caster when their role matches.
+                    local includeSpell = true
+                    local srf = spellRoleFilter and spellRoleFilter[spellID]
+                    if srf then
+                        local hasSpellRestriction = false
+                        for _, v in pairs(srf) do
+                            if v then hasSpellRestriction = true; break end
+                        end
+                        if hasSpellRestriction then
+                            local rEntry = roster[unitName]
+                            if rEntry and LGT then
+                                local role = LGT:GetUnitRole(rEntry.unitID)
+                                if role and not srf[role] then
+                                    includeSpell = false
+                                end
+                                -- role == nil → fail-open, include.
+                            end
+                        end
                     end
-                    local className = roster[unitName] and roster[unitName].class or ""
-                    tinsert(result, {
-                        srcName   = unitName,
-                        spellID   = spellID,
-                        timeLeft  = timeLeft,
-                        dur       = info.dur,
-                        destName  = info.destName,
-                        icon      = spellIconCache[spellID],
-                        className = className,
-                    })
+
+                    if includeSpell then
+                        local timeLeft = info.expTime - now
+                        if not spellIconCache[spellID] then
+                            spellIconCache[spellID] = select(3, GetSpellInfo(spellID))
+                        end
+                        local className = roster[unitName] and roster[unitName].class or ""
+                        tinsert(result, {
+                            srcName   = unitName,
+                            spellID   = spellID,
+                            timeLeft  = timeLeft,
+                            dur       = info.dur,
+                            destName  = info.destName,
+                            icon      = spellIconCache[spellID],
+                            className = className,
+                        })
+                    end
                 end
             end
         end
     end
 
+    -- Sort: group identical spells together, active (on cooldown) rows first
+    -- within each spell group, then by time remaining / player name.
     table.sort(result, function(a, b)
+        -- Primary: group by spellID so the same spell from all players sits
+        -- together in the display.
+        if a.spellID ~= b.spellID then return a.spellID < b.spellID end
+        -- Same spell: active cooldowns before ready ones.
         local aActive = a.timeLeft > 0
         local bActive = b.timeLeft > 0
         if aActive ~= bActive then return aActive end
-        -- Both on cooldown: sort ascending by time remaining.
+        -- Both on cooldown: soonest expiry first.
         if aActive then return a.timeLeft < b.timeLeft end
-        -- Both ready: stable sort by player name then spellID for consistent ordering.
-        if a.srcName ~= b.srcName then return a.srcName < b.srcName end
-        return a.spellID < b.spellID
+        -- Both ready: stable sort by player name.
+        return a.srcName < b.srcName
     end)
 
     return result
@@ -443,13 +478,15 @@ end
 function Cooldowns:CreateGroup(name)
     if self.db.profile.groups[name] then return false end
     self.db.profile.groups[name] = {
-        name         = name,
-        showReady    = true,
-        iconSize     = 24,
-        rowHeight    = 26,
-        width        = 260,
-        enabledSpells = self:AllSpellsEnabled(),
-        roleFilter   = {},
+        name              = name,
+        showReady         = true,
+        iconSize          = 24,
+        rowHeight         = 26,
+        spellGroupSpacing = 4,
+        width             = 260,
+        enabledSpells     = self:AllSpellsEnabled(),
+        roleFilter        = {},
+        spellRoleFilter   = {},
     }
     tinsert(self.db.profile.groupOrder, name)
     if ns.CreateGroupFrame then
@@ -504,13 +541,15 @@ function Cooldowns:OnInitialize()
     if #self.db.profile.groupOrder == 0 then
         local groupName = "Raid Cooldowns"
         self.db.profile.groups[groupName] = {
-            name          = groupName,
-            showReady     = true,
-            iconSize      = 24,
-            rowHeight     = 26,
-            width         = 260,
-            enabledSpells = self:AllSpellsEnabled(),
-            roleFilter    = {},
+            name              = groupName,
+            showReady         = true,
+            iconSize          = 24,
+            rowHeight         = 26,
+            spellGroupSpacing = 4,
+            width             = 260,
+            enabledSpells     = self:AllSpellsEnabled(),
+            roleFilter        = {},
+            spellRoleFilter   = {},
         }
         tinsert(self.db.profile.groupOrder, groupName)
     end

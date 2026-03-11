@@ -76,6 +76,7 @@ local function BuildSpellArgs(groupName)
                 local data    = entry.data
                 local key     = "spell_" .. className .. "_" .. spellID
 
+                -- Enable/disable toggle for this spell.
                 args[key] = {
                     type  = "toggle",
                     name  = SpellDesc(spellID, data.dur),
@@ -90,6 +91,46 @@ local function BuildSpellArgs(groupName)
                         if cfg then
                             cfg.enabledSpells          = cfg.enabledSpells or {}
                             cfg.enabledSpells[spellID] = val or nil
+                        end
+                    end,
+                }
+                order = order + 1
+
+                -- Per-spell role restriction: only show this spell's bars for
+                -- players whose role is checked.  Leave all unchecked to show
+                -- the spell for every role.
+                args["spellroles_" .. className .. "_" .. spellID] = {
+                    type   = "multiselect",
+                    name   = "Roles",
+                    desc   = "Only show this spell for players with the checked roles.\n"
+                          .. "Leave all unchecked to show for every role.",
+                    order  = order,
+                    values = {
+                        tank   = "Tank",
+                        healer = "Healer",
+                        melee  = "Melee",
+                        caster = "Caster",
+                    },
+                    get    = function(_, roleKey)
+                        local cfg = Cooldowns.db.profile.groups[groupName]
+                        return cfg and cfg.spellRoleFilter
+                            and cfg.spellRoleFilter[spellID]
+                            and cfg.spellRoleFilter[spellID][roleKey] or false
+                    end,
+                    set    = function(_, roleKey, val)
+                        local cfg = Cooldowns.db.profile.groups[groupName]
+                        if not cfg then return end
+                        cfg.spellRoleFilter = cfg.spellRoleFilter or {}
+                        cfg.spellRoleFilter[spellID] = cfg.spellRoleFilter[spellID] or {}
+                        cfg.spellRoleFilter[spellID][roleKey] = val
+                        -- Remove the sub-table entirely when all roles are unchecked
+                        -- so that "no restriction" is represented by nil, not {}.
+                        local hasAny = false
+                        for _, v in pairs(cfg.spellRoleFilter[spellID]) do
+                            if v then hasAny = true; break end
+                        end
+                        if not hasAny then
+                            cfg.spellRoleFilter[spellID] = nil
                         end
                     end,
                 }
@@ -191,11 +232,29 @@ local function BuildGroupArgs(groupName)
             end,
         },
 
+        spellGroupSpacing = {
+            type  = "range",
+            name  = "Spell group spacing",
+            desc  = "Extra gap (in pixels) inserted between rows of different spells.",
+            order = 6,
+            min   = 0,
+            max   = 20,
+            step  = 1,
+            get   = function()
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                return cfg and cfg.spellGroupSpacing or 4
+            end,
+            set   = function(_, val)
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                if cfg then cfg.spellGroupSpacing = val end
+            end,
+        },
+
         deleteGroup = {
             type    = "execute",
             name    = "Delete group",
             desc    = "Permanently remove this group and its display frame.",
-            order   = 6,
+            order   = 7,
             confirm = true,
             confirmText = "Delete group '" .. groupName .. "'?",
             func    = function()
@@ -208,20 +267,20 @@ local function BuildGroupArgs(groupName)
         roleHeader = {
             type  = "header",
             name  = "Role Filter",
-            order = 7,
+            order = 8,
         },
 
         roleDesc = {
             type  = "description",
             name  = "Only show cooldowns for players with the selected roles. "
                  .. "Leave all unchecked to show every role.",
-            order = 8,
+            order = 9,
         },
 
         roleTank = {
             type  = "toggle",
             name  = "Tank",
-            order = 9,
+            order = 10,
             get   = function()
                 local cfg = Cooldowns.db.profile.groups[groupName]
                 return cfg and cfg.roleFilter and cfg.roleFilter["tank"] or false
@@ -238,7 +297,7 @@ local function BuildGroupArgs(groupName)
         roleHealer = {
             type  = "toggle",
             name  = "Healer",
-            order = 10,
+            order = 11,
             get   = function()
                 local cfg = Cooldowns.db.profile.groups[groupName]
                 return cfg and cfg.roleFilter and cfg.roleFilter["healer"] or false
@@ -255,7 +314,7 @@ local function BuildGroupArgs(groupName)
         roleMelee = {
             type  = "toggle",
             name  = "Melee",
-            order = 11,
+            order = 12,
             get   = function()
                 local cfg = Cooldowns.db.profile.groups[groupName]
                 return cfg and cfg.roleFilter and cfg.roleFilter["melee"] or false
@@ -272,7 +331,7 @@ local function BuildGroupArgs(groupName)
         roleCaster = {
             type  = "toggle",
             name  = "Caster",
-            order = 12,
+            order = 13,
             get   = function()
                 local cfg = Cooldowns.db.profile.groups[groupName]
                 return cfg and cfg.roleFilter and cfg.roleFilter["caster"] or false
