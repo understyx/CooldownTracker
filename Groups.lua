@@ -46,12 +46,49 @@ local flatBackdrop = {
 }
 
 -- ============================================================
+-- Time formatting helpers
+-- ============================================================
+
+-- Plain-text version used in chat messages (no colour codes).
+local function FormatTimeChat(seconds)
+    if seconds <= 0 then return "Ready" end
+    if seconds < 10 then
+        return string.format("%.1fs", seconds)
+    elseif seconds < 60 then
+        return string.format("%.0fs", seconds)
+    elseif seconds < 3600 then
+        return string.format("%dm%02ds", math.floor(seconds / 60), seconds % 60)
+    else
+        return string.format("%dh%02dm",
+            math.floor(seconds / 3600), math.floor((seconds % 3600) / 60))
+    end
+end
+
+-- Colour-coded version used in the on-screen timer column.
+local function FormatTime(seconds)
+    if seconds <= 0 then
+        return "|cff22ff22Ready|r"
+    elseif seconds < 10 then
+        return string.format("|cffff3030%.1fs|r",  seconds)
+    elseif seconds < 60 then
+        return string.format("|cffffd700%.0fs|r",  seconds)
+    elseif seconds < 3600 then
+        return string.format("|cffffffff%dm%02ds|r",
+            math.floor(seconds / 60), seconds % 60)
+    else
+        return string.format("|cffffffff%dh%02dm|r",
+            math.floor(seconds / 3600), math.floor((seconds % 3600) / 60))
+    end
+end
+
+-- ============================================================
 -- Row pool factory
 -- ============================================================
 
 LibFramePool:CreatePool(POOL_KEY, function(parent)
-    local row = CreateFrame("Frame", nil, parent)
+    local row = CreateFrame("Button", nil, parent)
     row:SetHeight(DEFAULT_ROW_H)
+    row:RegisterForClicks("LeftButtonUp")
 
     -- Row background
     local bg = row:CreateTexture(nil, "BACKGROUND")
@@ -101,6 +138,41 @@ LibFramePool:CreatePool(POOL_KEY, function(parent)
     timerText:SetJustifyH("RIGHT")
     row.timerText = timerText
 
+    -- Click-to-chat:
+    --   Shift+Click  → raid/party/say: [name] - [spell] - [state]
+    --   Alt+Click    → whisper player: "Please use [spell] on me"
+    --                  (only when the spell is Ready)
+    row:SetScript("OnClick", function(self, button)
+        if button ~= "LeftButton" then return end
+        local data = self._cdData
+        if not data then return end
+        -- Ignore clicks while in layout-edit mode so they don't fight the mover.
+        if LibEditmode:IsEditModeActive(addonName) then return end
+
+        local spellName = Cooldowns:GetSpellDisplayName(data.spellID)
+
+        if IsShiftKeyDown() then
+            local state = FormatTimeChat(data.timeLeft)
+            local msg   = string.format("[%s] - [%s] - [%s]",
+                data.srcName, spellName, state)
+            local channel
+            if IsInRaid() then
+                channel = "RAID"
+            elseif GetNumGroupMembers() > 0 then
+                channel = "PARTY"
+            else
+                channel = "SAY"
+            end
+            SendChatMessage(msg, channel)
+        elseif IsAltKeyDown() then
+            -- Only whisper when the spell is actually ready.
+            if data.timeLeft <= 0 then
+                SendChatMessage("Please use " .. spellName .. " on me",
+                    "WHISPER", nil, data.srcName)
+            end
+        end
+    end)
+
     return row
 end)
 
@@ -108,23 +180,10 @@ end)
 -- Helpers
 -- ============================================================
 
-local function FormatTime(seconds)
-    if seconds <= 0 then
-        return "|cff22ff22Ready|r"
-    elseif seconds < 10 then
-        return string.format("|cffff3030%.1fs|r",  seconds)
-    elseif seconds < 60 then
-        return string.format("|cffffd700%.0fs|r",  seconds)
-    elseif seconds < 3600 then
-        return string.format("|cffffffff%dm%02ds|r",
-            math.floor(seconds / 60), seconds % 60)
-    else
-        return string.format("|cffffffff%dh%02dm|r",
-            math.floor(seconds / 3600), math.floor((seconds % 3600) / 60))
-    end
-end
-
 local function UpdateRow(row, data, rowWidth)
+    -- Store a reference so click handlers can access it.
+    row._cdData = data
+
     -- Icon
     row.icon:SetTexture(data.icon)
 
@@ -196,6 +255,10 @@ local function OnGroupUpdate(frame, elapsed)
     -- Acquire row frames for new entries.
     while #frame.activeRows < #rows do
         local r = LibFramePool:Acquire(POOL_KEY, frame)
+        -- Acquire internally calls Show(), but the row has no anchor points yet.
+        -- Hide it immediately so it is never rendered in an unpositioned state;
+        -- the layout loop below will Show() it after SetPoint() is called.
+        r:Hide()
         r:SetWidth(frameW)
         tinsert(frame.activeRows, r)
     end
