@@ -40,6 +40,7 @@ local defaults = {
         -- Ordered list of group names (controls display order).
         groupOrder = {},
         -- groups[name] = { name, showReady, iconSize, width, enabledSpells={[spellID]=bool} }
+        -- showReady defaults to true so bars are visible from the start (ready state).
         groups     = {},
     },
 }
@@ -60,6 +61,11 @@ local spellIconCache = {}
 
 -- Localized Rebirth spell name — needed for UNIT_SPELLCAST_SUCCEEDED.
 local locRebirth
+
+-- Spell ID of the Shaman lust ability that is NOT available to the player's
+-- faction.  Set in OnEnable once UnitFactionGroup is available.
+-- Declared here (before SeedUnitCooldowns) so the function can close over it.
+local excludedShaman
 
 -- ============================================================
 -- Helpers
@@ -99,12 +105,28 @@ local function IterateGroupMembers()
     return t
 end
 
+local function SeedUnitCooldowns(unitName, className)
+    local classData = spellData[className]
+    if not classData then return end
+    local state = GetOrCreateUnitState(unitName)
+    for spellID, data in pairs(classData) do
+        -- Skip the opposing faction's lust spell once the faction is known.
+        if spellID ~= excludedShaman then
+            if not state[spellID] then
+                -- Seed a "ready" entry so a bar exists immediately.
+                -- expTime = 0 is truthy in Lua; timeLeft = 0 - now (large negative) → "Ready".
+                state[spellID] = { dur = data.dur, expTime = 0 }
+            end
+        end
+    end
+end
+
 local function AddUnit(unitID)
     local _, className = UnitClass(unitID)
     local unitName     = GetUnitName(unitID)
     if not className or not unitName or unitName == UNKNOWNOBJECT then return end
     roster[unitName] = { class = className, unitID = unitID }
-    GetOrCreateUnitState(unitName)
+    SeedUnitCooldowns(unitName, className)
 end
 
 local function RemoveUnit(unitName)
@@ -122,8 +144,10 @@ local function RefreshRoster()
             if not roster[unitName] then
                 AddUnit(unitID)
             else
-                -- Keep unitID up-to-date (it can change on zone-in).
+                -- Keep unitID up-to-date (it can change on zone-in) and
+                -- ensure all spells are seeded (handles late excludedShaman init).
                 roster[unitName].unitID = unitID
+                SeedUnitCooldowns(unitName, className)
             end
         end
     end
@@ -249,7 +273,11 @@ function Cooldowns:GetActiveCooldowns(enabledSpells)
         local aActive = a.timeLeft > 0
         local bActive = b.timeLeft > 0
         if aActive ~= bActive then return aActive end
-        return a.timeLeft < b.timeLeft
+        -- Both on cooldown: sort ascending by time remaining.
+        if aActive then return a.timeLeft < b.timeLeft end
+        -- Both ready: stable sort by player name then spellID for consistent ordering.
+        if a.srcName ~= b.srcName then return a.srcName < b.srcName end
+        return a.spellID < b.spellID
     end)
 
     return result
@@ -288,7 +316,7 @@ function Cooldowns:CreateGroup(name)
     if self.db.profile.groups[name] then return false end
     self.db.profile.groups[name] = {
         name         = name,
-        showReady    = false,
+        showReady    = true,
         iconSize     = 24,
         width        = 260,
         enabledSpells = self:AllSpellsEnabled(),
@@ -347,7 +375,7 @@ function Cooldowns:OnInitialize()
         local groupName = "Raid Cooldowns"
         self.db.profile.groups[groupName] = {
             name          = groupName,
-            showReady     = false,
+            showReady     = true,
             iconSize      = 24,
             width         = 260,
             enabledSpells = self:AllSpellsEnabled(),
@@ -355,12 +383,6 @@ function Cooldowns:OnInitialize()
         tinsert(self.db.profile.groupOrder, groupName)
     end
 end
-
--- Spell ID of the Shaman lust ability that is NOT available to the player's
--- faction.  Populated in OnEnable once UnitFactionGroup is available.
--- Used by AllSpellsEnabled() to exclude the irrelevant lust spell from
--- the default enabled set without mutating the shared spellData table.
-local excludedShaman
 
 function Cooldowns:OnEnable()
     locRebirth = GetSpellInfo(48477)
