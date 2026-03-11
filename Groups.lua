@@ -155,10 +155,12 @@ LibFramePool:CreatePool(POOL_KEY, function(parent)
             local state = FormatTimeChat(data.timeLeft)
             local msg   = string.format("[%s] - [%s] - [%s]",
                 data.srcName, spellName, state)
+            -- WotLK 3.3.5 API: GetNumRaidMembers / GetNumPartyMembers.
+            -- IsInRaid and GetNumGroupMembers were added in 5.0.4+.
             local channel
-            if IsInRaid() then
+            if GetNumRaidMembers() > 0 then
                 channel = "RAID"
-            elseif GetNumGroupMembers() > 0 then
+            elseif GetNumPartyMembers() > 0 then
                 channel = "PARTY"
             else
                 channel = "SAY"
