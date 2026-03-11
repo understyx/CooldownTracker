@@ -270,8 +270,10 @@ local function OnGroupUpdate(frame, elapsed)
     local yOffset = HEADER_H
     for i, cd in ipairs(rows) do
         local row = frame.activeRows[i]
-        -- Insert configurable spacing between groups of the same spell.
-        if i > 1 and cd.spellID ~= rows[i - 1].spellID then
+        -- Insert configurable spacing between class groups or between spell groups
+        -- within the same class.
+        if i > 1 and (cd.className ~= rows[i - 1].className
+                   or cd.spellID  ~= rows[i - 1].spellID) then
             yOffset = yOffset + spellGroupSpacing
         end
         row:SetWidth(frameW)

@@ -499,13 +499,14 @@ function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilter
         end
     end
 
-    -- Sort: group identical spells together, active (on cooldown) rows first
-    -- within each spell group, then by time remaining / player name.
+    -- Sort: primary by class, secondary by spellID, then active rows first,
+    -- then by time remaining (soonest first) / player name.
     table.sort(result, function(a, b)
-        -- Primary: group by spellID so the same spell from all players sits
-        -- together in the display.
+        -- Primary: group by class so all cooldowns of the same class sit together.
+        if a.className ~= b.className then return a.className < b.className end
+        -- Secondary: within a class, group by spellID.
         if a.spellID ~= b.spellID then return a.spellID < b.spellID end
-        -- Same spell: active cooldowns before ready ones.
+        -- Same class and spell: active cooldowns before ready ones.
         local aActive = a.timeLeft > 0
         local bActive = b.timeLeft > 0
         if aActive ~= bActive then return aActive end
