@@ -1,0 +1,13 @@
+## Interface: 30300
+## Title: Cooldowns
+## Notes: Raid cooldown tracker — create named groups and track cooldowns per player.
+## Version: 1.0
+## SavedVariables: CooldownsDB
+
+Libraries\Load_Libraries.xml
+
+SpellData.lua
+Skin.lua
+Core.lua
+Groups.lua
+Config.lua
