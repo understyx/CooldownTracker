@@ -133,8 +133,6 @@ function LibFramePool:ResetFrame(frame, pool)
     frame:ClearAllPoints()
     frame:SetAlpha(1)
     frame:SetScale(1)
-    frame:SetFrameStrata("LOW")
-    frame:SetFrameLevel(0)
 
     if pool.options.resetParent then
         frame:SetParent(pool.options.resetParent)
