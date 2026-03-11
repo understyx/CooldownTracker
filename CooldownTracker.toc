@@ -1,5 +1,5 @@
 ## Interface: 30300
-## Title: Cooldowns
+## Title: CooldownTracker
 ## Notes: Raid cooldown tracker — create named groups and track cooldowns per player.
 ## Version: 1.0
 ## SavedVariables: CooldownsDB
