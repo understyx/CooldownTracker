@@ -647,6 +647,10 @@ function Cooldowns:OnEnable()
     self:RegisterEvent("PARTY_MEMBERS_CHANGED",       "OnRosterUpdate")
     self:RegisterEvent("PLAYER_ENTERING_WORLD",       "OnPlayerEnteringWorld")
     self:RegisterEvent("PLAYER_LOGOUT",               "OnPlayerLogout")
+    -- PLAYER_LEAVING_WORLD fires on /reload (and zone changes), whereas
+    -- PLAYER_LOGOUT does NOT fire on /reload.  Saving here ensures the
+    -- cdState is persisted before the Lua environment is torn down.
+    self:RegisterEvent("PLAYER_LEAVING_WORLD",        "OnPlayerLogout")
 
     -- Subscribe to LibGroupTalents talent-received / respec events so we can
     -- seed talent-required spell bars once each player's talents are confirmed.

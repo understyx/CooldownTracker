@@ -57,6 +57,12 @@ function LibFramePool:Acquire(poolKey, parent)
 
     if parent then
         frame:SetParent(parent)
+        -- Ensure the frame renders above the parent (strata + level).
+        -- Without this a recycled frame that previously had its strata/level
+        -- reset may render behind the parent's backdrop, creating a gray
+        -- overlay over the frame contents.
+        frame:SetFrameStrata(parent:GetFrameStrata())
+        frame:SetFrameLevel(parent:GetFrameLevel() + 1)
     end
 
     frame:Show()
