@@ -5,6 +5,15 @@
 --   Cooldowns:GetActiveCooldowns(enabledSpells[, roleFilter])  → sorted list of cooldown entries
 --   Cooldowns:GetSpellDisplayName(spellID)                     → localized spell name (cached)
 --   ns.OpenConfig()                                            → opens the AceConfigDialog
+--
+-- Talent handling strategy:
+--   Common spells (tReq = nil/false) are seeded immediately when a player
+--   joins so bars appear right away.
+--   Talent-required spells (tReq = true) are seeded only after
+--   LibGroupTalents-1.0 fires LibGroupTalents_Update, confirming the player
+--   has been inspected and the specific talent has points allocated.
+--   Duration reductions (minus = true) are applied at cast-time via
+--   ComputeCooldownDuration using live LGT talent-point data.
 
 local addonName, ns = ...
 
@@ -53,7 +62,7 @@ local defaults = {
 -- Runtime state (not persisted between sessions)
 -- ============================================================
 
--- roster[unitName] = { class = "CLASSNAME", unitID = "raidN" }
+-- roster[unitName] = { class = "CLASSNAME", unitID = "raidN", guid = "0x..." }
 local roster = {}
 
 -- cdState[unitName][spellID] = { dur, expTime, destName, pendingDestName }
@@ -82,15 +91,35 @@ local function GetOrCreateUnitState(unitName)
     return cdState[unitName]
 end
 
+--- Returns the talent-adjusted cooldown duration for a spell.
+--- Applies 'minus' talent point reductions when LibGroupTalents data is available.
+--- Falls back to the base duration if LGT is unavailable or talent data is missing.
+local function ComputeCooldownDuration(unitID, classData, spellID)
+    local data = classData and classData[spellID]
+    if not data then return 0 end
+    local dur = data.dur
+    if data.minus and LGT and unitID and data.minusTabIndex then
+        for i = 1, #data.minusTabIndex do
+            local _, _, _, _, pts = LGT:GetTalentInfo(
+                unitID, data.minusTabIndex[i], data.minusTalentIndex[i])
+            if pts and pts > 0 then
+                dur = dur - pts * data.minusPerPoint[i]
+            end
+        end
+    end
+    return math.max(1, dur)
+end
+
 local function RecordCast(srcName, spellID, destName)
     local entry = roster[srcName]
     if not entry then return end
     local data = spellData[entry.class] and spellData[entry.class][spellID]
     if not data then return end
     local state = GetOrCreateUnitState(srcName)
+    local dur   = ComputeCooldownDuration(entry.unitID, spellData[entry.class], spellID)
     state[spellID]          = state[spellID] or {}
-    state[spellID].dur      = data.dur
-    state[spellID].expTime  = GetTime() + data.dur
+    state[spellID].dur      = dur
+    state[spellID].expTime  = GetTime() + dur
     state[spellID].destName = destName
 end
 
@@ -109,33 +138,83 @@ local function IterateGroupMembers()
     return t
 end
 
-local function SeedUnitCooldowns(unitName, className)
+--- Seeds cooldown entries for a single unit.
+---
+--- Strategy:
+---   • Common spells (tReq = nil/false): seeded immediately; the bar shows
+---     "Ready" from the start regardless of talent data.
+---   • Talent-required spells (tReq = true): only seeded once LibGroupTalents
+---     has received and confirmed the unit's talent data.  Until then the bar
+---     is simply absent.  When LGT fires LibGroupTalents_Update the
+---     ReseedAfterTalentChange path calls this function again and seeds any
+---     talents that are now confirmed.
+---
+--- Existing entries (e.g. an active cooldown) are never overwritten.
+local function SeedUnitCooldowns(unitName, className, unitID)
     local classData = spellData[className]
     if not classData then return end
     local state = GetOrCreateUnitState(unitName)
+
     for spellID, data in pairs(classData) do
-        -- Skip the opposing faction's lust spell once the faction is known.
         if spellID ~= excludedShaman then
-            if not state[spellID] then
-                -- Seed a "ready" entry so a bar exists immediately.
-                -- expTime = 0 is truthy in Lua; timeLeft = 0 - now (large negative) → "Ready".
-                state[spellID] = { dur = data.dur, expTime = 0 }
+            if not data.tReq then
+                -- Common spell — always seed if not already present.
+                if not state[spellID] then
+                    state[spellID] = { dur = data.dur, expTime = 0 }
+                end
+            elseif unitID and LGT then
+                -- Talent-required spell — only seed once LGT confirms the data.
+                -- GetUnitTalents returns nil when talents haven't arrived yet.
+                -- For the local "player" unit the Blizzard API is always available,
+                -- so we skip the nil-check and go straight to GetTalentInfo.
+                -- unitID is guaranteed non-nil by the outer `elseif unitID` guard.
+                local talentsKnown = UnitIsUnit(unitID, "player")
+                    or LGT:GetUnitTalents(unitID) ~= nil
+
+                if talentsKnown then
+                    local _, _, _, _, pts = LGT:GetTalentInfo(
+                        unitID, data.tabIndex, data.talentIndex)
+                    if (pts or 0) > 0 and not state[spellID] then
+                        state[spellID] = { dur = data.dur, expTime = 0 }
+                    end
+                end
+                -- If talentsKnown is false we do nothing; the bar will appear
+                -- once LibGroupTalents_Update fires for this unit.
             end
         end
     end
+end
+
+--- Called when LibGroupTalents confirms (or changes) a unit's talent data.
+--- Wipes all talent-required spell entries for the unit then re-seeds them
+--- using the now-known talent state.  Non-talent spells are untouched.
+local function ReseedAfterTalentChange(unitName, className, unitID)
+    local classData = spellData[className]
+    if not classData then return end
+    local state = cdState[unitName]
+    if not state then return end
+
+    for spellID, data in pairs(classData) do
+        if data.tReq then
+            state[spellID] = nil   -- remove stale entry; re-add below if still valid
+        end
+    end
+
+    SeedUnitCooldowns(unitName, className, unitID)
 end
 
 local function AddUnit(unitID)
     local _, className = UnitClass(unitID)
     local unitName     = GetUnitName(unitID)
     if not className or not unitName or unitName == UNKNOWNOBJECT then return end
-    roster[unitName] = { class = className, unitID = unitID }
-    SeedUnitCooldowns(unitName, className)
+    roster[unitName] = { class = className, unitID = unitID, guid = UnitGUID(unitID) }
+    SeedUnitCooldowns(unitName, className, unitID)
 end
 
 local function RemoveUnit(unitName)
     roster[unitName] = nil
-    cdState[unitName] = nil   -- Remove their cooldowns so they no longer appear.
+    -- Wipe cooldown state immediately so departed players' bars disappear.
+    cdState[unitName] = nil
 end
 
 local function RefreshRoster()
@@ -148,10 +227,12 @@ local function RefreshRoster()
             if not roster[unitName] then
                 AddUnit(unitID)
             else
-                -- Keep unitID up-to-date (it can change on zone-in) and
-                -- ensure all spells are seeded (handles late excludedShaman init).
+                -- Keep unitID / guid up-to-date (can change on zone-in) and
+                -- seed any spells not yet present (common spells always; talent
+                -- spells if LGT already has this unit's talent data).
                 roster[unitName].unitID = unitID
-                SeedUnitCooldowns(unitName, className)
+                roster[unitName].guid  = UnitGUID(unitID)
+                SeedUnitCooldowns(unitName, className, unitID)
             end
         end
     end
@@ -239,6 +320,20 @@ function Cooldowns:OnPlayerEnteringWorld()
     self:ScheduleTimer(RefreshRoster, 1)
 end
 
+--- LibGroupTalents_Update fires when a unit's talent data is first received
+--- (initial inspection) or when it changes (respec / dual-spec swap).
+--- We use it to seed talent-required spells that were deliberately skipped
+--- until the talent state was confirmed.
+function Cooldowns:OnTalentUpdate(event, guid)
+    -- Find the roster entry that matches this GUID.
+    for unitName, entry in pairs(roster) do
+        if entry.guid == guid then
+            ReseedAfterTalentChange(unitName, entry.class, entry.unitID)
+            return
+        end
+    end
+end
+
 -- ============================================================
 -- Public API
 -- ============================================================
@@ -276,7 +371,7 @@ function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter)
                 if role and not roleFilter[role] then
                     includeUnit = false
                 end
-                -- If role is nil (not yet resolved by LGT), fail-open and include.
+                -- role == nil means LGT hasn't resolved this unit yet; fail-open.
             end
         end
 
@@ -439,6 +534,12 @@ function Cooldowns:OnEnable()
     self:RegisterEvent("RAID_ROSTER_UPDATE",          "OnRosterUpdate")
     self:RegisterEvent("PARTY_MEMBERS_CHANGED",       "OnRosterUpdate")
     self:RegisterEvent("PLAYER_ENTERING_WORLD",       "OnPlayerEnteringWorld")
+
+    -- Subscribe to LibGroupTalents talent-received / respec events so we can
+    -- seed talent-required spell bars once each player's talents are confirmed.
+    if LGT then
+        LGT.RegisterCallback(Cooldowns, "LibGroupTalents_Update", "OnTalentUpdate")
+    end
 
     self:RegisterChatCommand("cooldowns", "OpenConfig")
     self:RegisterChatCommand("cd",        "OpenConfig")
