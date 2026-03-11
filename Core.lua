@@ -2,9 +2,9 @@
 -- Main addon backbone: event handling, roster management, cooldown state.
 --
 -- Public API (via ns.Cooldowns):
---   Cooldowns:GetActiveCooldowns(enabledSpells)  → sorted list of cooldown entries
---   Cooldowns:GetSpellDisplayName(spellID)       → localized spell name (cached)
---   ns.OpenConfig()                              → opens the AceConfigDialog
+--   Cooldowns:GetActiveCooldowns(enabledSpells[, roleFilter])  → sorted list of cooldown entries
+--   Cooldowns:GetSpellDisplayName(spellID)                     → localized spell name (cached)
+--   ns.OpenConfig()                                            → opens the AceConfigDialog
 
 local addonName, ns = ...
 
@@ -30,6 +30,10 @@ local GetNumRaidMembers  = GetNumRaidMembers
 local GetNumPartyMembers = GetNumPartyMembers
 local GetSpellInfo = GetSpellInfo
 local pairs, ipairs, tinsert, tremove = pairs, ipairs, tinsert, tremove
+
+-- LibGroupTalents provides GetUnitRole("raid1") → "tank"/"healer"/"melee"/"caster".
+-- The `true` flag makes LibStub return nil instead of erroring if not present.
+local LGT = LibStub and LibStub("LibGroupTalents-1.0", true)
 
 -- ============================================================
 -- AceDB defaults
@@ -131,7 +135,7 @@ end
 
 local function RemoveUnit(unitName)
     roster[unitName] = nil
-    -- Leave cdState intact so in-flight cooldowns can still be displayed.
+    cdState[unitName] = nil   -- Remove their cooldowns so they no longer appear.
 end
 
 local function RefreshRoster()
@@ -244,27 +248,56 @@ end
 ---   { srcName, spellID, timeLeft, dur, destName, icon, className }
 --- Sorted: active cooldowns (timeLeft > 0) first, ascending by time left;
 --- then ready spells (timeLeft <= 0) after.
-function Cooldowns:GetActiveCooldowns(enabledSpells)
+---
+--- Optional `roleFilter` table: keys are role names (e.g. "tank", "healer",
+--- "melee", "caster"), values are true to include that role.  If the table
+--- is nil or empty every role is shown.  Roles are resolved via
+--- LibGroupTalents-1.0; units whose role cannot be determined are always
+--- included (fail-open).
+function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter)
     local result = {}
     local now    = GetTime()
 
+    -- Pre-compute whether any role filter is active.
+    local hasRoleFilter = false
+    if roleFilter then
+        for _, v in pairs(roleFilter) do
+            if v then hasRoleFilter = true; break end
+        end
+    end
+
     for unitName, state in pairs(cdState) do
-        for spellID, info in pairs(state) do
-            if enabledSpells[spellID] and info.expTime then
-                local timeLeft = info.expTime - now
-                if not spellIconCache[spellID] then
-                    spellIconCache[spellID] = select(3, GetSpellInfo(spellID))
+        -- Role filter: skip units whose role is not selected.
+        local includeUnit = true
+        if hasRoleFilter then
+            local rEntry = roster[unitName]
+            if rEntry and LGT then
+                local role = LGT:GetUnitRole(rEntry.unitID)
+                if role and not roleFilter[role] then
+                    includeUnit = false
                 end
-                local className = roster[unitName] and roster[unitName].class or ""
-                tinsert(result, {
-                    srcName   = unitName,
-                    spellID   = spellID,
-                    timeLeft  = timeLeft,
-                    dur       = info.dur,
-                    destName  = info.destName,
-                    icon      = spellIconCache[spellID],
-                    className = className,
-                })
+                -- If role is nil (not yet resolved by LGT), fail-open and include.
+            end
+        end
+
+        if includeUnit then
+            for spellID, info in pairs(state) do
+                if enabledSpells[spellID] and info.expTime then
+                    local timeLeft = info.expTime - now
+                    if not spellIconCache[spellID] then
+                        spellIconCache[spellID] = select(3, GetSpellInfo(spellID))
+                    end
+                    local className = roster[unitName] and roster[unitName].class or ""
+                    tinsert(result, {
+                        srcName   = unitName,
+                        spellID   = spellID,
+                        timeLeft  = timeLeft,
+                        dur       = info.dur,
+                        destName  = info.destName,
+                        icon      = spellIconCache[spellID],
+                        className = className,
+                    })
+                end
             end
         end
     end
@@ -318,8 +351,10 @@ function Cooldowns:CreateGroup(name)
         name         = name,
         showReady    = true,
         iconSize     = 24,
+        rowHeight    = 26,
         width        = 260,
         enabledSpells = self:AllSpellsEnabled(),
+        roleFilter   = {},
     }
     tinsert(self.db.profile.groupOrder, name)
     if ns.CreateGroupFrame then
@@ -377,8 +412,10 @@ function Cooldowns:OnInitialize()
             name          = groupName,
             showReady     = true,
             iconSize      = 24,
+            rowHeight     = 26,
             width         = 260,
             enabledSpells = self:AllSpellsEnabled(),
+            roleFilter    = {},
         }
         tinsert(self.db.profile.groupOrder, groupName)
     end

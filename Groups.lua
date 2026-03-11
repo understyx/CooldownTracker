@@ -27,10 +27,12 @@ local classColors  = ns.classColors
 
 local POOL_KEY     = "Cooldowns_Row"
 local HEADER_H     = 22     -- header strip height (px)
-local ROW_H        = 26     -- height of one cooldown row
+local ROW_H        = 26     -- default height of one cooldown row
 local ROW_PAD      = 1      -- vertical gap between rows
 local MIN_W        = 180    -- minimum group frame width
 local DEFAULT_W    = 260
+local MIN_ROW_H    = 16     -- minimum configurable row height
+local MAX_ROW_H    = 50     -- maximum configurable row height
 
 -- ============================================================
 -- Flat backdrop (shared with Skin.lua style)
@@ -165,8 +167,14 @@ local function OnGroupUpdate(frame, elapsed)
     local gConfig = Cooldowns.db.profile.groups[gName]
     if not gConfig then return end
 
+    -- Clamp row height to valid range.
+    local rowH = math.max(MIN_ROW_H, math.min(MAX_ROW_H,
+        gConfig.rowHeight or ROW_H))
+
     local frameW   = frame:GetWidth()
-    local cooldowns = Cooldowns:GetActiveCooldowns(gConfig.enabledSpells or {})
+    local cooldowns = Cooldowns:GetActiveCooldowns(
+        gConfig.enabledSpells or {},
+        gConfig.roleFilter)
 
     -- Filter out "ready" entries when showReady is disabled.
     local rows = {}
@@ -193,15 +201,18 @@ local function OnGroupUpdate(frame, elapsed)
     for i, cd in ipairs(rows) do
         local row = frame.activeRows[i]
         row:SetWidth(frameW)
+        row:SetHeight(rowH)
+        -- Resize the icon proportionally.
+        row.icon:SetSize(rowH - 4, rowH - 4)
         UpdateRow(row, cd, frameW)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", frame, "TOPLEFT",
-            0, -(HEADER_H + (i - 1) * (ROW_H + ROW_PAD)))
+            0, -(HEADER_H + (i - 1) * (rowH + ROW_PAD)))
         row:Show()
     end
 
     -- Resize the container to exactly fit its rows.
-    local totalH = HEADER_H + #rows * (ROW_H + ROW_PAD)
+    local totalH = HEADER_H + #rows * (rowH + ROW_PAD)
     frame:SetHeight(math.max(HEADER_H + 4, totalH))
 end
 

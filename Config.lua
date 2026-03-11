@@ -173,11 +173,29 @@ local function BuildGroupArgs(groupName)
             end,
         },
 
+        rowHeight = {
+            type  = "range",
+            name  = "Row height",
+            desc  = "Height of each cooldown row in pixels.",
+            order = 5,
+            min   = 16,
+            max   = 50,
+            step  = 1,
+            get   = function()
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                return cfg and cfg.rowHeight or 26
+            end,
+            set   = function(_, val)
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                if cfg then cfg.rowHeight = val end
+            end,
+        },
+
         deleteGroup = {
             type    = "execute",
             name    = "Delete group",
             desc    = "Permanently remove this group and its display frame.",
-            order   = 5,
+            order   = 6,
             confirm = true,
             confirmText = "Delete group '" .. groupName .. "'?",
             func    = function()
@@ -186,17 +204,99 @@ local function BuildGroupArgs(groupName)
             end,
         },
 
+        -- ---- Role filter ----
+        roleHeader = {
+            type  = "header",
+            name  = "Role Filter",
+            order = 7,
+        },
+
+        roleDesc = {
+            type  = "description",
+            name  = "Only show cooldowns for players with the selected roles. "
+                 .. "Leave all unchecked to show every role.",
+            order = 8,
+        },
+
+        roleTank = {
+            type  = "toggle",
+            name  = "Tank",
+            order = 9,
+            get   = function()
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                return cfg and cfg.roleFilter and cfg.roleFilter["tank"] or false
+            end,
+            set   = function(_, val)
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                if cfg then
+                    cfg.roleFilter = cfg.roleFilter or {}
+                    cfg.roleFilter["tank"] = val or nil
+                end
+            end,
+        },
+
+        roleHealer = {
+            type  = "toggle",
+            name  = "Healer",
+            order = 10,
+            get   = function()
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                return cfg and cfg.roleFilter and cfg.roleFilter["healer"] or false
+            end,
+            set   = function(_, val)
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                if cfg then
+                    cfg.roleFilter = cfg.roleFilter or {}
+                    cfg.roleFilter["healer"] = val or nil
+                end
+            end,
+        },
+
+        roleMelee = {
+            type  = "toggle",
+            name  = "Melee",
+            order = 11,
+            get   = function()
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                return cfg and cfg.roleFilter and cfg.roleFilter["melee"] or false
+            end,
+            set   = function(_, val)
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                if cfg then
+                    cfg.roleFilter = cfg.roleFilter or {}
+                    cfg.roleFilter["melee"] = val or nil
+                end
+            end,
+        },
+
+        roleCaster = {
+            type  = "toggle",
+            name  = "Caster",
+            order = 12,
+            get   = function()
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                return cfg and cfg.roleFilter and cfg.roleFilter["caster"] or false
+            end,
+            set   = function(_, val)
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                if cfg then
+                    cfg.roleFilter = cfg.roleFilter or {}
+                    cfg.roleFilter["caster"] = val or nil
+                end
+            end,
+        },
+
         -- ---- Spell selection ----
         spellsHeader = {
             type  = "header",
             name  = "Tracked Spells",
-            order = 10,
+            order = 20,
         },
 
         enableAll = {
             type  = "execute",
             name  = "Enable all",
-            order = 11,
+            order = 21,
             func  = function()
                 local cfg = Cooldowns.db.profile.groups[groupName]
                 if cfg then
@@ -208,7 +308,7 @@ local function BuildGroupArgs(groupName)
         disableAll = {
             type  = "execute",
             name  = "Disable all",
-            order = 12,
+            order = 22,
             func  = function()
                 local cfg = Cooldowns.db.profile.groups[groupName]
                 if cfg then cfg.enabledSpells = {} end
@@ -219,7 +319,7 @@ local function BuildGroupArgs(groupName)
             type   = "group",
             name   = "Spells",
             inline = true,
-            order  = 20,
+            order  = 30,
             args   = BuildSpellArgs(groupName),
         },
     }
