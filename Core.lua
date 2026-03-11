@@ -50,6 +50,12 @@ local LGT = LibStub and LibStub("LibGroupTalents-1.0", true)
 -- ============================================================
 
 local defaults = {
+    global = {
+        -- Runtime cooldown state persisted so /reload does not lose active CDs.
+        -- Entries: cdStateDB[unitName][spellID] = { dur, expireAt, destName }
+        -- expireAt is a Unix timestamp (time()) so it survives GetTime() resetting.
+        cdStateDB = {},
+    },
     profile = {
         -- Ordered list of group names (controls display order).
         groupOrder = {},
@@ -67,7 +73,13 @@ local defaults = {
 local roster = {}
 
 -- cdState[unitName][spellID] = { dur, expTime, destName, pendingDestName }
+-- This table is pre-populated from db.global.cdStateDB on the first RefreshRoster
+-- after a /reload so active cooldowns survive the session restart.
 local cdState = {}
+
+-- Guards the one-time restore so we only overlay saved state on the first
+-- RefreshRoster call after an initialisation, not on every subsequent refresh.
+local cdStateRestored = false
 
 -- Spell name / icon caches (lazy populated).
 local spellNameCache = {}
@@ -243,6 +255,37 @@ local function RefreshRoster()
             RemoveUnit(unitName)
         end
     end
+    -- On the first refresh after a /reload, overlay saved expiry times onto the
+    -- freshly-seeded cdState entries (only for units now confirmed in the roster).
+    if not cdStateRestored then
+        cdStateRestored = true
+        local db = Cooldowns.db.global.cdStateDB
+        if db then
+            local now     = GetTime()
+            local wallNow = time()
+            for unitName in pairs(roster) do
+                local saved = db[unitName]
+                if saved then
+                    local state = cdState[unitName]
+                    if state then
+                        for spellID, entry in pairs(saved) do
+                            if state[spellID] and entry.expireAt then
+                                local remaining = entry.expireAt - wallNow
+                                if remaining > 0 then
+                                    -- Cooldown still active — restore expiry and metadata.
+                                    state[spellID].dur      = entry.dur
+                                    state[spellID].destName = entry.destName
+                                    state[spellID].expTime  = now + remaining
+                                end
+                                -- remaining <= 0: cooldown expired during the reload gap;
+                                -- leave the seeded ready state (expTime = 0) as-is.
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
 end
 
 -- ============================================================
@@ -319,6 +362,35 @@ end
 
 function Cooldowns:OnPlayerEnteringWorld()
     self:ScheduleTimer(RefreshRoster, 1)
+end
+
+--- Persist the current cdState to SavedVariables so a /reload can restore it.
+--- expireAt is stored as a Unix timestamp (time()) to survive GetTime() resetting.
+--- Only active (not yet expired) cooldowns are saved; ready spells are re-seeded
+--- at expTime = 0 automatically and need no persistence.
+function Cooldowns:OnPlayerLogout()
+    local now     = GetTime()
+    local wallNow = time()
+    local saved   = {}
+    for unitName, state in pairs(cdState) do
+        local unitSaved = {}
+        for spellID, info in pairs(state) do
+            if info.expTime ~= nil then
+                local remaining = info.expTime - now
+                if remaining > 0 then
+                    unitSaved[spellID] = {
+                        dur      = info.dur,
+                        expireAt = wallNow + remaining,
+                        destName = info.destName,
+                    }
+                end
+            end
+        end
+        if next(unitSaved) then
+            saved[unitName] = unitSaved
+        end
+    end
+    self.db.global.cdStateDB = saved
 end
 
 --- LibGroupTalents_Update fires when a unit's talent data is first received
@@ -573,6 +645,7 @@ function Cooldowns:OnEnable()
     self:RegisterEvent("RAID_ROSTER_UPDATE",          "OnRosterUpdate")
     self:RegisterEvent("PARTY_MEMBERS_CHANGED",       "OnRosterUpdate")
     self:RegisterEvent("PLAYER_ENTERING_WORLD",       "OnPlayerEnteringWorld")
+    self:RegisterEvent("PLAYER_LOGOUT",               "OnPlayerLogout")
 
     -- Subscribe to LibGroupTalents talent-received / respec events so we can
     -- seed talent-required spell bars once each player's talents are confirmed.
