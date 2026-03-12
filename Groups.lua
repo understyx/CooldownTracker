@@ -29,10 +29,11 @@ local POOL_KEY     = "Cooldowns_Row"
 local HEADER_H     = 22     -- header strip height (px)
 local DEFAULT_ROW_H = 26    -- fallback row height when not configured
 local ROW_PAD      = 1      -- vertical gap between rows
-local MIN_W        = 180    -- minimum group frame width
+local MIN_W        = 100    -- minimum group frame width
 local DEFAULT_W    = 260
-local MIN_ROW_H    = 16     -- minimum configurable row height
+local MIN_ROW_H    = 10     -- minimum configurable row height
 local MAX_ROW_H    = 50     -- maximum configurable row height
+local BAR_ALPHA    = 0.45   -- alpha for all active/ready progress bars
 
 -- ============================================================
 -- Flat backdrop (shared with Skin.lua style)
@@ -182,34 +183,61 @@ end)
 -- Helpers
 -- ============================================================
 
-local function UpdateRow(row, data, rowWidth)
+local function UpdateRow(row, data, rowWidth, gConfig)
     -- Store a reference so click handlers can access it.
     row._cdData = data
 
-    -- Icon
-    row.icon:SetTexture(data.icon)
+    -- Icon: show or hide based on config (default: show).
+    if gConfig and gConfig.showIcon ~= false then
+        row.icon:Show()
+        row.icon:SetTexture(data.icon)
+        -- Restore default anchor (right of icon).
+        row.nameText:ClearAllPoints()
+        row.nameText:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
+    else
+        row.icon:Hide()
+        -- Re-anchor nameText flush to the row's left edge when icon is absent.
+        row.nameText:ClearAllPoints()
+        row.nameText:SetPoint("LEFT", row, "LEFT", 2, 0)
+    end
 
     -- Player name with class colour
     local cc = classColors[data.className] or { 1, 1, 1 }
     row.nameText:SetText(data.srcName)
     row.nameText:SetTextColor(cc[1], cc[2], cc[3])
 
-    -- Spell name
-    row.spellText:SetText(Cooldowns:GetSpellDisplayName(data.spellID))
+    -- Spell name: show or hide based on config (default: show).
+    if gConfig and gConfig.showSpellName ~= false then
+        row.spellText:Show()
+        row.spellText:SetText(Cooldowns:GetSpellDisplayName(data.spellID))
+    else
+        row.spellText:Hide()
+    end
 
     -- Timer
     row.timerText:SetText(FormatTime(data.timeLeft))
 
-    -- Progress bar
+    -- Progress bar: fills from left as cooldown elapses.
+    -- pct represents how much of the cooldown has passed (0 = just cast, 1 = ready).
+    local colorByClass = gConfig and gConfig.colorBarByClass
     if data.timeLeft > 0 and data.dur > 0 then
-        local pct = data.timeLeft / data.dur
+        local pct = 1 - (data.timeLeft / data.dur)
         local w   = math.max(1, (rowWidth or row:GetWidth()) * pct)
         row.bar:SetWidth(w)
-        row.bar:SetVertexColor(0.18, 0.56, 1.00, 0.45)
+        -- Bar colour: class colour when colorBarByClass is enabled, else default blue.
+        if colorByClass then
+            row.bar:SetVertexColor(cc[1], cc[2], cc[3], BAR_ALPHA)
+        else
+            row.bar:SetVertexColor(0.18, 0.56, 1.00, BAR_ALPHA)
+        end
     else
-        -- Ready — show a faint green full bar
+        -- Ready — full bar.
         row.bar:SetWidth(rowWidth or row:GetWidth())
-        row.bar:SetVertexColor(0.10, 0.70, 0.15, 0.30)
+        if colorByClass then
+            row.bar:SetVertexColor(cc[1], cc[2], cc[3], BAR_ALPHA)
+        else
+            row.bar:SetVertexColor(0.10, 0.70, 0.15, 0.30)
+        end
     end
 end
 
@@ -227,6 +255,15 @@ local function OnGroupUpdate(frame, elapsed)
     local gName   = frame._groupName
     local gConfig = Cooldowns.db.profile.groups[gName]
     if not gConfig then return end
+
+    -- Show / hide the group header based on config (default: show).
+    local showHeader = gConfig.showHeader ~= false
+    if frame.headerBG then
+        if showHeader then frame.headerBG:Show() else frame.headerBG:Hide() end
+    end
+    if frame.label then
+        if showHeader then frame.label:Show() else frame.label:Hide() end
+    end
 
     -- Clamp row height to valid range.
     local rowH = math.max(MIN_ROW_H, math.min(MAX_ROW_H,
@@ -266,8 +303,9 @@ local function OnGroupUpdate(frame, elapsed)
     end
 
     -- Update content and layout.
-    -- yOffset tracks the top-edge of the next row, starting just below the header.
-    local yOffset = HEADER_H
+    -- yOffset tracks the top-edge of the next row.  When the header is visible
+    -- rows start just below it; when hidden they start at the very top.
+    local yOffset = showHeader and HEADER_H or 0
     for i, cd in ipairs(rows) do
         local row = frame.activeRows[i]
         -- Insert configurable spacing between class groups or between spell groups
@@ -280,7 +318,7 @@ local function OnGroupUpdate(frame, elapsed)
         row:SetHeight(rowH)
         -- Resize the icon proportionally.
         row.icon:SetSize(rowH - 4, rowH - 4)
-        UpdateRow(row, cd, frameW)
+        UpdateRow(row, cd, frameW, gConfig)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -yOffset)
         row:Show()
@@ -288,7 +326,7 @@ local function OnGroupUpdate(frame, elapsed)
     end
 
     -- Resize the container to exactly fit its rows plus all inter-group gaps.
-    frame:SetHeight(math.max(HEADER_H + 4, yOffset))
+    frame:SetHeight(math.max((showHeader and HEADER_H or 0) + 4, yOffset))
 end
 
 function ns.CreateGroupFrame(groupName)
@@ -327,6 +365,7 @@ function ns.CreateGroupFrame(groupName)
     headerBG:SetHeight(HEADER_H - 2)
     headerBG:SetTexture("Interface\\ChatFrame\\ChatFrameBackground")
     headerBG:SetVertexColor(0.10, 0.10, 0.10, 1)
+    frame.headerBG = headerBG
 
     -- Group name label
     local label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
