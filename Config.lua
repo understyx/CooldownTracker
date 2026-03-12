@@ -195,12 +195,81 @@ local function BuildGroupArgs(groupName)
             end,
         },
 
+        displayHeader = {
+            type  = "header",
+            name  = "Display",
+            order = 3.1,
+        },
+
+        showHeader = {
+            type  = "toggle",
+            name  = "Show group header",
+            desc  = "Show or hide the group name header bar at the top of the frame.",
+            order = 3.2,
+            get   = function()
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                -- Default true: header is shown unless explicitly disabled.
+                return cfg and cfg.showHeader ~= false
+            end,
+            set   = function(_, val)
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                if cfg then cfg.showHeader = val end
+            end,
+        },
+
+        colorBarByClass = {
+            type  = "toggle",
+            name  = "Color bar by class",
+            desc  = "Tint the cooldown progress bar with the caster's class colour.",
+            order = 3.3,
+            get   = function()
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                return cfg and cfg.colorBarByClass or false
+            end,
+            set   = function(_, val)
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                if cfg then cfg.colorBarByClass = val end
+            end,
+        },
+
+        showIcon = {
+            type  = "toggle",
+            name  = "Show spell icon",
+            desc  = "Show the spell or ability icon on each cooldown row.",
+            order = 3.4,
+            get   = function()
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                -- Default true: icon is shown unless explicitly disabled.
+                return cfg and cfg.showIcon ~= false
+            end,
+            set   = function(_, val)
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                if cfg then cfg.showIcon = val end
+            end,
+        },
+
+        showSpellName = {
+            type  = "toggle",
+            name  = "Show spell name",
+            desc  = "Show the spell or ability name on each cooldown row.",
+            order = 3.5,
+            get   = function()
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                -- Default true: spell name is shown unless explicitly disabled.
+                return cfg and cfg.showSpellName ~= false
+            end,
+            set   = function(_, val)
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                if cfg then cfg.showSpellName = val end
+            end,
+        },
+
         width = {
             type  = "range",
             name  = "Frame width",
             desc  = "Width of the group display frame in pixels.",
             order = 4,
-            min   = 180,
+            min   = 100,
             max   = 600,
             step  = 10,
             get   = function()
@@ -221,7 +290,7 @@ local function BuildGroupArgs(groupName)
             name  = "Row height",
             desc  = "Height of each cooldown row in pixels.",
             order = 5,
-            min   = 16,
+            min   = 10,
             max   = 50,
             step  = 1,
             get   = function()
