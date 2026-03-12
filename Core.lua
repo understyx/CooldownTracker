@@ -201,19 +201,47 @@ end
 --- Called when LibGroupTalents confirms (or changes) a unit's talent data.
 --- Wipes all talent-required spell entries for the unit then re-seeds them
 --- using the now-known talent state.  Non-talent spells are untouched.
+---
+--- Active cooldown timers are preserved across the wipe/re-seed cycle so
+--- that a post-reload LGT talent-update event (which fires even when the
+--- player has NOT respecced) cannot reset a live countdown.  If the player
+--- actually lost a talent the re-seed will not recreate the entry and the
+--- saved timer is simply discarded.
 local function ReseedAfterTalentChange(unitName, className, unitID)
     local classData = spellData[className]
     if not classData then return end
     local state = cdState[unitName]
     if not state then return end
 
+    -- Snapshot any active timers for talent-required spells before clearing.
+    local now    = GetTime()
+    local active = {}
     for spellID, data in pairs(classData) do
         if data.tReq then
+            local info = state[spellID]
+            if info and info.expTime and info.expTime > now then
+                active[spellID] = {
+                    expTime  = info.expTime,
+                    dur      = info.dur,
+                    destName = info.destName,
+                }
+            end
             state[spellID] = nil   -- remove stale entry; re-add below if still valid
         end
     end
 
     SeedUnitCooldowns(unitName, className, unitID)
+
+    -- Restore active timers for spells the player still has (re-seeded above).
+    -- If the player lost a talent, SeedUnitCooldowns will not have created an
+    -- entry, so state[spellID] is nil and the loop below skips it cleanly.
+    for spellID, snap in pairs(active) do
+        if state[spellID] then
+            state[spellID].expTime  = snap.expTime
+            state[spellID].dur      = snap.dur
+            state[spellID].destName = snap.destName
+        end
+    end
 end
 
 local function AddUnit(unitID)
