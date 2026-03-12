@@ -27,10 +27,12 @@ local classColors  = ns.classColors
 
 local POOL_KEY     = "Cooldowns_Row"
 local HEADER_H     = 22     -- header strip height (px)
-local ROW_H        = 26     -- height of one cooldown row
+local DEFAULT_ROW_H = 26    -- fallback row height when not configured
 local ROW_PAD      = 1      -- vertical gap between rows
 local MIN_W        = 180    -- minimum group frame width
 local DEFAULT_W    = 260
+local MIN_ROW_H    = 16     -- minimum configurable row height
+local MAX_ROW_H    = 50     -- maximum configurable row height
 
 -- ============================================================
 -- Flat backdrop (shared with Skin.lua style)
@@ -44,12 +46,49 @@ local flatBackdrop = {
 }
 
 -- ============================================================
+-- Time formatting helpers
+-- ============================================================
+
+-- Plain-text version used in chat messages (no colour codes).
+local function FormatTimeChat(seconds)
+    if seconds <= 0 then return "Ready" end
+    if seconds < 10 then
+        return string.format("%.1fs", seconds)
+    elseif seconds < 60 then
+        return string.format("%.0fs", seconds)
+    elseif seconds < 3600 then
+        return string.format("%dm%02ds", math.floor(seconds / 60), seconds % 60)
+    else
+        return string.format("%dh%02dm",
+            math.floor(seconds / 3600), math.floor((seconds % 3600) / 60))
+    end
+end
+
+-- Colour-coded version used in the on-screen timer column.
+local function FormatTime(seconds)
+    if seconds <= 0 then
+        return "|cff22ff22Ready|r"
+    elseif seconds < 10 then
+        return string.format("|cffff3030%.1fs|r",  seconds)
+    elseif seconds < 60 then
+        return string.format("|cffffd700%.0fs|r",  seconds)
+    elseif seconds < 3600 then
+        return string.format("|cffffffff%dm%02ds|r",
+            math.floor(seconds / 60), seconds % 60)
+    else
+        return string.format("|cffffffff%dh%02dm|r",
+            math.floor(seconds / 3600), math.floor((seconds % 3600) / 60))
+    end
+end
+
+-- ============================================================
 -- Row pool factory
 -- ============================================================
 
 LibFramePool:CreatePool(POOL_KEY, function(parent)
-    local row = CreateFrame("Frame", nil, parent)
-    row:SetHeight(ROW_H)
+    local row = CreateFrame("Button", nil, parent)
+    row:SetHeight(DEFAULT_ROW_H)
+    row:RegisterForClicks("LeftButtonUp")
 
     -- Row background
     local bg = row:CreateTexture(nil, "BACKGROUND")
@@ -68,7 +107,7 @@ LibFramePool:CreatePool(POOL_KEY, function(parent)
     row.bar = bar
 
     -- Spell icon
-    local ICON_SIZE = ROW_H - 4
+    local ICON_SIZE = DEFAULT_ROW_H - 4
     local icon = row:CreateTexture(nil, "ARTWORK")
     icon:SetSize(ICON_SIZE, ICON_SIZE)
     icon:SetPoint("LEFT", row, "LEFT", 2, 0)
@@ -99,6 +138,43 @@ LibFramePool:CreatePool(POOL_KEY, function(parent)
     timerText:SetJustifyH("RIGHT")
     row.timerText = timerText
 
+    -- Click-to-chat:
+    --   Shift+Click  → raid/party/say: [name] - [spell] - [state]
+    --   Alt+Click    → whisper player: "Please use [spell] on me"
+    --                  (only when the spell is Ready)
+    row:SetScript("OnClick", function(self, button)
+        if button ~= "LeftButton" then return end
+        local data = self._cdData
+        if not data then return end
+        -- Ignore clicks while in layout-edit mode so they don't fight the mover.
+        if LibEditmode:IsEditModeActive(addonName) then return end
+
+        local spellName = Cooldowns:GetSpellDisplayName(data.spellID)
+
+        if IsShiftKeyDown() then
+            local state = FormatTimeChat(data.timeLeft)
+            local msg   = string.format("[%s] - [%s] - [%s]",
+                data.srcName, spellName, state)
+            -- WotLK 3.3.5 API: GetNumRaidMembers / GetNumPartyMembers.
+            -- IsInRaid and GetNumGroupMembers were added in 5.0.4+.
+            local channel
+            if GetNumRaidMembers() > 0 then
+                channel = "RAID"
+            elseif GetNumPartyMembers() > 0 then
+                channel = "PARTY"
+            else
+                channel = "SAY"
+            end
+            SendChatMessage(msg, channel)
+        elseif IsAltKeyDown() then
+            -- Only whisper when the spell is actually ready.
+            if data.timeLeft <= 0 then
+                SendChatMessage("Please use " .. spellName .. " on me",
+                    "WHISPER", nil, data.srcName)
+            end
+        end
+    end)
+
     return row
 end)
 
@@ -106,23 +182,10 @@ end)
 -- Helpers
 -- ============================================================
 
-local function FormatTime(seconds)
-    if seconds <= 0 then
-        return "|cff22ff22Ready|r"
-    elseif seconds < 10 then
-        return string.format("|cffff3030%.1fs|r",  seconds)
-    elseif seconds < 60 then
-        return string.format("|cffffd700%.0fs|r",  seconds)
-    elseif seconds < 3600 then
-        return string.format("|cffffffff%dm%02ds|r",
-            math.floor(seconds / 60), seconds % 60)
-    else
-        return string.format("|cffffffff%dh%02dm|r",
-            math.floor(seconds / 3600), math.floor((seconds % 3600) / 60))
-    end
-end
-
 local function UpdateRow(row, data, rowWidth)
+    -- Store a reference so click handlers can access it.
+    row._cdData = data
+
     -- Icon
     row.icon:SetTexture(data.icon)
 
@@ -165,8 +228,17 @@ local function OnGroupUpdate(frame, elapsed)
     local gConfig = Cooldowns.db.profile.groups[gName]
     if not gConfig then return end
 
+    -- Clamp row height to valid range.
+    local rowH = math.max(MIN_ROW_H, math.min(MAX_ROW_H,
+        gConfig.rowHeight or DEFAULT_ROW_H))
+
+    local spellGroupSpacing = math.max(0, gConfig.spellGroupSpacing or 4)
+
     local frameW   = frame:GetWidth()
-    local cooldowns = Cooldowns:GetActiveCooldowns(gConfig.enabledSpells or {})
+    local cooldowns = Cooldowns:GetActiveCooldowns(
+        gConfig.enabledSpells or {},
+        gConfig.roleFilter,
+        gConfig.spellRoleFilter)
 
     -- Filter out "ready" entries when showReady is disabled.
     local rows = {}
@@ -185,24 +257,38 @@ local function OnGroupUpdate(frame, elapsed)
     -- Acquire row frames for new entries.
     while #frame.activeRows < #rows do
         local r = LibFramePool:Acquire(POOL_KEY, frame)
+        -- Acquire internally calls Show(), but the row has no anchor points yet.
+        -- Hide it immediately so it is never rendered in an unpositioned state;
+        -- the layout loop below will Show() it after SetPoint() is called.
+        r:Hide()
         r:SetWidth(frameW)
         tinsert(frame.activeRows, r)
     end
 
     -- Update content and layout.
+    -- yOffset tracks the top-edge of the next row, starting just below the header.
+    local yOffset = HEADER_H
     for i, cd in ipairs(rows) do
         local row = frame.activeRows[i]
+        -- Insert configurable spacing between class groups or between spell groups
+        -- within the same class.
+        if i > 1 and (cd.className ~= rows[i - 1].className
+                   or cd.spellID  ~= rows[i - 1].spellID) then
+            yOffset = yOffset + spellGroupSpacing
+        end
         row:SetWidth(frameW)
+        row:SetHeight(rowH)
+        -- Resize the icon proportionally.
+        row.icon:SetSize(rowH - 4, rowH - 4)
         UpdateRow(row, cd, frameW)
         row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", frame, "TOPLEFT",
-            0, -(HEADER_H + (i - 1) * (ROW_H + ROW_PAD)))
+        row:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -yOffset)
         row:Show()
+        yOffset = yOffset + rowH + ROW_PAD
     end
 
-    -- Resize the container to exactly fit its rows.
-    local totalH = HEADER_H + #rows * (ROW_H + ROW_PAD)
-    frame:SetHeight(math.max(HEADER_H + 4, totalH))
+    -- Resize the container to exactly fit its rows plus all inter-group gaps.
+    frame:SetHeight(math.max(HEADER_H + 4, yOffset))
 end
 
 function ns.CreateGroupFrame(groupName)

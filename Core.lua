@@ -2,9 +2,19 @@
 -- Main addon backbone: event handling, roster management, cooldown state.
 --
 -- Public API (via ns.Cooldowns):
---   Cooldowns:GetActiveCooldowns(enabledSpells)  → sorted list of cooldown entries
---   Cooldowns:GetSpellDisplayName(spellID)       → localized spell name (cached)
---   ns.OpenConfig()                              → opens the AceConfigDialog
+--   Cooldowns:GetActiveCooldowns(enabledSpells[, roleFilter[, spellRoleFilter]])
+--       → sorted list of cooldown entries, grouped by spellID
+--   Cooldowns:GetSpellDisplayName(spellID)  → localized spell name (cached)
+--   ns.OpenConfig()                         → opens the AceConfigDialog
+--
+-- Talent handling strategy:
+--   Common spells (tReq = nil/false) are seeded immediately when a player
+--   joins so bars appear right away.
+--   Talent-required spells (tReq = true) are seeded only after
+--   LibGroupTalents-1.0 fires LibGroupTalents_Update, confirming the player
+--   has been inspected and the specific talent has points allocated.
+--   Duration reductions (minus = true) are applied at cast-time via
+--   ComputeCooldownDuration using live LGT talent-point data.
 
 local addonName, ns = ...
 
@@ -31,11 +41,21 @@ local GetNumPartyMembers = GetNumPartyMembers
 local GetSpellInfo = GetSpellInfo
 local pairs, ipairs, tinsert, tremove = pairs, ipairs, tinsert, tremove
 
+-- LibGroupTalents provides GetUnitRole("raid1") → "tank"/"healer"/"melee"/"caster".
+-- The `true` flag makes LibStub return nil instead of erroring if not present.
+local LGT = LibStub and LibStub("LibGroupTalents-1.0", true)
+
 -- ============================================================
 -- AceDB defaults
 -- ============================================================
 
 local defaults = {
+    global = {
+        -- Runtime cooldown state persisted so /reload does not lose active CDs.
+        -- Entries: cdStateDB[unitName][spellID] = { dur, expireAt, destName }
+        -- expireAt is a Unix timestamp (time()) so it survives GetTime() resetting.
+        cdStateDB = {},
+    },
     profile = {
         -- Ordered list of group names (controls display order).
         groupOrder = {},
@@ -49,11 +69,17 @@ local defaults = {
 -- Runtime state (not persisted between sessions)
 -- ============================================================
 
--- roster[unitName] = { class = "CLASSNAME", unitID = "raidN" }
+-- roster[unitName] = { class = "CLASSNAME", unitID = "raidN", guid = "0x..." }
 local roster = {}
 
 -- cdState[unitName][spellID] = { dur, expTime, destName, pendingDestName }
+-- This table is pre-populated from db.global.cdStateDB on the first RefreshRoster
+-- after a /reload so active cooldowns survive the session restart.
 local cdState = {}
+
+-- Guards the one-time restore so we only overlay saved state on the first
+-- RefreshRoster call after an initialisation, not on every subsequent refresh.
+local cdStateRestored = false
 
 -- Spell name / icon caches (lazy populated).
 local spellNameCache = {}
@@ -78,15 +104,35 @@ local function GetOrCreateUnitState(unitName)
     return cdState[unitName]
 end
 
+--- Returns the talent-adjusted cooldown duration for a spell.
+--- Applies 'minus' talent point reductions when LibGroupTalents data is available.
+--- Falls back to the base duration if LGT is unavailable or talent data is missing.
+local function ComputeCooldownDuration(unitID, classData, spellID)
+    local data = classData and classData[spellID]
+    if not data then return 0 end
+    local dur = data.dur
+    if data.minus and LGT and unitID and data.minusTabIndex then
+        for i = 1, #data.minusTabIndex do
+            local _, _, _, _, pts = LGT:GetTalentInfo(
+                unitID, data.minusTabIndex[i], data.minusTalentIndex[i])
+            if pts and pts > 0 then
+                dur = dur - pts * data.minusPerPoint[i]
+            end
+        end
+    end
+    return math.max(1, dur)
+end
+
 local function RecordCast(srcName, spellID, destName)
     local entry = roster[srcName]
     if not entry then return end
     local data = spellData[entry.class] and spellData[entry.class][spellID]
     if not data then return end
     local state = GetOrCreateUnitState(srcName)
+    local dur   = ComputeCooldownDuration(entry.unitID, spellData[entry.class], spellID)
     state[spellID]          = state[spellID] or {}
-    state[spellID].dur      = data.dur
-    state[spellID].expTime  = GetTime() + data.dur
+    state[spellID].dur      = dur
+    state[spellID].expTime  = GetTime() + dur
     state[spellID].destName = destName
 end
 
@@ -105,33 +151,83 @@ local function IterateGroupMembers()
     return t
 end
 
-local function SeedUnitCooldowns(unitName, className)
+--- Seeds cooldown entries for a single unit.
+---
+--- Strategy:
+---   • Common spells (tReq = nil/false): seeded immediately; the bar shows
+---     "Ready" from the start regardless of talent data.
+---   • Talent-required spells (tReq = true): only seeded once LibGroupTalents
+---     has received and confirmed the unit's talent data.  Until then the bar
+---     is simply absent.  When LGT fires LibGroupTalents_Update the
+---     ReseedAfterTalentChange path calls this function again and seeds any
+---     talents that are now confirmed.
+---
+--- Existing entries (e.g. an active cooldown) are never overwritten.
+local function SeedUnitCooldowns(unitName, className, unitID)
     local classData = spellData[className]
     if not classData then return end
     local state = GetOrCreateUnitState(unitName)
+
     for spellID, data in pairs(classData) do
-        -- Skip the opposing faction's lust spell once the faction is known.
         if spellID ~= excludedShaman then
-            if not state[spellID] then
-                -- Seed a "ready" entry so a bar exists immediately.
-                -- expTime = 0 is truthy in Lua; timeLeft = 0 - now (large negative) → "Ready".
-                state[spellID] = { dur = data.dur, expTime = 0 }
+            if not data.tReq then
+                -- Common spell — always seed if not already present.
+                if not state[spellID] then
+                    state[spellID] = { dur = data.dur, expTime = 0 }
+                end
+            elseif unitID and LGT then
+                -- Talent-required spell — only seed once LGT confirms the data.
+                -- GetUnitTalents returns nil when talents haven't arrived yet.
+                -- For the local "player" unit the Blizzard API is always available,
+                -- so we skip the nil-check and go straight to GetTalentInfo.
+                -- unitID is guaranteed non-nil by the outer `elseif unitID` guard.
+                local talentsKnown = UnitIsUnit(unitID, "player")
+                    or LGT:GetUnitTalents(unitID) ~= nil
+
+                if talentsKnown then
+                    local _, _, _, _, pts = LGT:GetTalentInfo(
+                        unitID, data.tabIndex, data.talentIndex)
+                    if (pts or 0) > 0 and not state[spellID] then
+                        state[spellID] = { dur = data.dur, expTime = 0 }
+                    end
+                end
+                -- If talentsKnown is false we do nothing; the bar will appear
+                -- once LibGroupTalents_Update fires for this unit.
             end
         end
     end
+end
+
+--- Called when LibGroupTalents confirms (or changes) a unit's talent data.
+--- Wipes all talent-required spell entries for the unit then re-seeds them
+--- using the now-known talent state.  Non-talent spells are untouched.
+local function ReseedAfterTalentChange(unitName, className, unitID)
+    local classData = spellData[className]
+    if not classData then return end
+    local state = cdState[unitName]
+    if not state then return end
+
+    for spellID, data in pairs(classData) do
+        if data.tReq then
+            state[spellID] = nil   -- remove stale entry; re-add below if still valid
+        end
+    end
+
+    SeedUnitCooldowns(unitName, className, unitID)
 end
 
 local function AddUnit(unitID)
     local _, className = UnitClass(unitID)
     local unitName     = GetUnitName(unitID)
     if not className or not unitName or unitName == UNKNOWNOBJECT then return end
-    roster[unitName] = { class = className, unitID = unitID }
-    SeedUnitCooldowns(unitName, className)
+    roster[unitName] = { class = className, unitID = unitID, guid = UnitGUID(unitID) }
+    SeedUnitCooldowns(unitName, className, unitID)
 end
 
 local function RemoveUnit(unitName)
     roster[unitName] = nil
-    -- Leave cdState intact so in-flight cooldowns can still be displayed.
+    -- Wipe cooldown state immediately so departed players' bars disappear.
+    cdState[unitName] = nil
 end
 
 local function RefreshRoster()
@@ -144,10 +240,12 @@ local function RefreshRoster()
             if not roster[unitName] then
                 AddUnit(unitID)
             else
-                -- Keep unitID up-to-date (it can change on zone-in) and
-                -- ensure all spells are seeded (handles late excludedShaman init).
+                -- Keep unitID / guid up-to-date (can change on zone-in) and
+                -- seed any spells not yet present (common spells always; talent
+                -- spells if LGT already has this unit's talent data).
                 roster[unitName].unitID = unitID
-                SeedUnitCooldowns(unitName, className)
+                roster[unitName].guid  = UnitGUID(unitID)
+                SeedUnitCooldowns(unitName, className, unitID)
             end
         end
     end
@@ -155,6 +253,37 @@ local function RefreshRoster()
     for unitName in pairs(roster) do
         if not current[unitName] then
             RemoveUnit(unitName)
+        end
+    end
+    -- On the first refresh after a /reload, overlay saved expiry times onto the
+    -- freshly-seeded cdState entries (only for units now confirmed in the roster).
+    if not cdStateRestored then
+        cdStateRestored = true
+        local db = Cooldowns.db.global.cdStateDB
+        if db then
+            local now     = GetTime()
+            local wallNow = time()
+            for unitName in pairs(roster) do
+                local saved = db[unitName]
+                if saved then
+                    local state = cdState[unitName]
+                    if state then
+                        for spellID, entry in pairs(saved) do
+                            if state[spellID] and entry.expireAt then
+                                local remaining = entry.expireAt - wallNow
+                                if remaining > 0 then
+                                    -- Cooldown still active — restore expiry and metadata.
+                                    state[spellID].dur      = entry.dur
+                                    state[spellID].destName = entry.destName
+                                    state[spellID].expTime  = now + remaining
+                                end
+                                -- remaining <= 0: cooldown expired during the reload gap;
+                                -- leave the seeded ready state (expTime = 0) as-is.
+                            end
+                        end
+                    end
+                end
+            end
         end
     end
 end
@@ -235,6 +364,49 @@ function Cooldowns:OnPlayerEnteringWorld()
     self:ScheduleTimer(RefreshRoster, 1)
 end
 
+--- Persist the current cdState to SavedVariables so a /reload can restore it.
+--- expireAt is stored as a Unix timestamp (time()) to survive GetTime() resetting.
+--- Only active (not yet expired) cooldowns are saved; ready spells are re-seeded
+--- at expTime = 0 automatically and need no persistence.
+function Cooldowns:OnPlayerLogout()
+    local now     = GetTime()
+    local wallNow = time()
+    local saved   = {}
+    for unitName, state in pairs(cdState) do
+        local unitSaved = {}
+        for spellID, info in pairs(state) do
+            if info.expTime ~= nil then
+                local remaining = info.expTime - now
+                if remaining > 0 then
+                    unitSaved[spellID] = {
+                        dur      = info.dur,
+                        expireAt = wallNow + remaining,
+                        destName = info.destName,
+                    }
+                end
+            end
+        end
+        if next(unitSaved) then
+            saved[unitName] = unitSaved
+        end
+    end
+    self.db.global.cdStateDB = saved
+end
+
+--- LibGroupTalents_Update fires when a unit's talent data is first received
+--- (initial inspection) or when it changes (respec / dual-spec swap).
+--- We use it to seed talent-required spells that were deliberately skipped
+--- until the talent state was confirmed.
+function Cooldowns:OnTalentUpdate(event, guid)
+    -- Find the roster entry that matches this GUID.
+    for unitName, entry in pairs(roster) do
+        if entry.guid == guid then
+            ReseedAfterTalentChange(unitName, entry.class, entry.unitID)
+            return
+        end
+    end
+end
+
 -- ============================================================
 -- Public API
 -- ============================================================
@@ -242,42 +414,106 @@ end
 --- Returns a sorted list of cooldown entries whose spellID appears in
 --- `enabledSpells`.  Each entry is a plain table:
 ---   { srcName, spellID, timeLeft, dur, destName, icon, className }
---- Sorted: active cooldowns (timeLeft > 0) first, ascending by time left;
---- then ready spells (timeLeft <= 0) after.
-function Cooldowns:GetActiveCooldowns(enabledSpells)
+---
+--- Sorted by spellID so the same spell from multiple players is grouped
+--- together.  Within each spell group, active cooldowns (timeLeft > 0) come
+--- first sorted by time remaining (soonest first); ready spells follow sorted
+--- by player name for a stable display order.
+---
+--- Optional `roleFilter` table: keys are role names ("tank", "healer",
+--- "melee", "caster"), values are true to include.  If nil/empty every role
+--- is shown.  Roles are resolved via LibGroupTalents-1.0; units whose role
+--- cannot be determined are always included (fail-open).
+---
+--- Optional `spellRoleFilter` table: spellRoleFilter[spellID] = { tank=true,
+--- ... }.  When set for a spell, only players whose role appears in the table
+--- have that spell shown.  An absent or empty sub-table means no restriction.
+function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilter)
     local result = {}
     local now    = GetTime()
 
+    -- Pre-compute whether any unit-level role filter is active.
+    local hasRoleFilter = false
+    if roleFilter then
+        for _, v in pairs(roleFilter) do
+            if v then hasRoleFilter = true; break end
+        end
+    end
+
     for unitName, state in pairs(cdState) do
-        for spellID, info in pairs(state) do
-            if enabledSpells[spellID] and info.expTime then
-                local timeLeft = info.expTime - now
-                if not spellIconCache[spellID] then
-                    spellIconCache[spellID] = select(3, GetSpellInfo(spellID))
+        -- Unit-level role filter: skip units whose role is not selected.
+        local includeUnit = true
+        if hasRoleFilter then
+            local rEntry = roster[unitName]
+            if rEntry and LGT then
+                local role = LGT:GetUnitRole(rEntry.unitID)
+                if role and not roleFilter[role] then
+                    includeUnit = false
                 end
-                local className = roster[unitName] and roster[unitName].class or ""
-                tinsert(result, {
-                    srcName   = unitName,
-                    spellID   = spellID,
-                    timeLeft  = timeLeft,
-                    dur       = info.dur,
-                    destName  = info.destName,
-                    icon      = spellIconCache[spellID],
-                    className = className,
-                })
+                -- role == nil means LGT hasn't resolved this unit yet; fail-open.
+            end
+        end
+
+        if includeUnit then
+            for spellID, info in pairs(state) do
+                if enabledSpells[spellID] and info.expTime then
+                    -- Per-spell role filter: if this spell has role restrictions,
+                    -- only include the caster when their role matches.
+                    local includeSpell = true
+                    local srf = spellRoleFilter and spellRoleFilter[spellID]
+                    if srf then
+                        local hasSpellRestriction = false
+                        for _, v in pairs(srf) do
+                            if v then hasSpellRestriction = true; break end
+                        end
+                        if hasSpellRestriction then
+                            local rEntry = roster[unitName]
+                            if rEntry and LGT then
+                                local role = LGT:GetUnitRole(rEntry.unitID)
+                                if role and not srf[role] then
+                                    includeSpell = false
+                                end
+                                -- role == nil → fail-open, include.
+                            end
+                        end
+                    end
+
+                    if includeSpell then
+                        local timeLeft = info.expTime - now
+                        if not spellIconCache[spellID] then
+                            spellIconCache[spellID] = select(3, GetSpellInfo(spellID))
+                        end
+                        local className = roster[unitName] and roster[unitName].class or ""
+                        tinsert(result, {
+                            srcName   = unitName,
+                            spellID   = spellID,
+                            timeLeft  = timeLeft,
+                            dur       = info.dur,
+                            destName  = info.destName,
+                            icon      = spellIconCache[spellID],
+                            className = className,
+                        })
+                    end
+                end
             end
         end
     end
 
+    -- Sort: primary by class, secondary by spellID, then active rows first,
+    -- then by time remaining (soonest first) / player name.
     table.sort(result, function(a, b)
+        -- Primary: group by class so all cooldowns of the same class sit together.
+        if a.className ~= b.className then return a.className < b.className end
+        -- Secondary: within a class, group by spellID.
+        if a.spellID ~= b.spellID then return a.spellID < b.spellID end
+        -- Same class and spell: active cooldowns before ready ones.
         local aActive = a.timeLeft > 0
         local bActive = b.timeLeft > 0
         if aActive ~= bActive then return aActive end
-        -- Both on cooldown: sort ascending by time remaining.
+        -- Both on cooldown: soonest expiry first.
         if aActive then return a.timeLeft < b.timeLeft end
-        -- Both ready: stable sort by player name then spellID for consistent ordering.
-        if a.srcName ~= b.srcName then return a.srcName < b.srcName end
-        return a.spellID < b.spellID
+        -- Both ready: stable sort by player name.
+        return a.srcName < b.srcName
     end)
 
     return result
@@ -315,11 +551,15 @@ end
 function Cooldowns:CreateGroup(name)
     if self.db.profile.groups[name] then return false end
     self.db.profile.groups[name] = {
-        name         = name,
-        showReady    = true,
-        iconSize     = 24,
-        width        = 260,
-        enabledSpells = self:AllSpellsEnabled(),
+        name              = name,
+        showReady         = true,
+        iconSize          = 24,
+        rowHeight         = 26,
+        spellGroupSpacing = 4,
+        width             = 260,
+        enabledSpells     = self:AllSpellsEnabled(),
+        roleFilter        = {},
+        spellRoleFilter   = {},
     }
     tinsert(self.db.profile.groupOrder, name)
     if ns.CreateGroupFrame then
@@ -374,11 +614,15 @@ function Cooldowns:OnInitialize()
     if #self.db.profile.groupOrder == 0 then
         local groupName = "Raid Cooldowns"
         self.db.profile.groups[groupName] = {
-            name          = groupName,
-            showReady     = true,
-            iconSize      = 24,
-            width         = 260,
-            enabledSpells = self:AllSpellsEnabled(),
+            name              = groupName,
+            showReady         = true,
+            iconSize          = 24,
+            rowHeight         = 26,
+            spellGroupSpacing = 4,
+            width             = 260,
+            enabledSpells     = self:AllSpellsEnabled(),
+            roleFilter        = {},
+            spellRoleFilter   = {},
         }
         tinsert(self.db.profile.groupOrder, groupName)
     end
@@ -402,6 +646,17 @@ function Cooldowns:OnEnable()
     self:RegisterEvent("RAID_ROSTER_UPDATE",          "OnRosterUpdate")
     self:RegisterEvent("PARTY_MEMBERS_CHANGED",       "OnRosterUpdate")
     self:RegisterEvent("PLAYER_ENTERING_WORLD",       "OnPlayerEnteringWorld")
+    self:RegisterEvent("PLAYER_LOGOUT",               "OnPlayerLogout")
+    -- PLAYER_LEAVING_WORLD fires on /reload (and zone changes), whereas
+    -- PLAYER_LOGOUT does NOT fire on /reload.  Saving here ensures the
+    -- cdState is persisted before the Lua environment is torn down.
+    self:RegisterEvent("PLAYER_LEAVING_WORLD",        "OnPlayerLogout")
+
+    -- Subscribe to LibGroupTalents talent-received / respec events so we can
+    -- seed talent-required spell bars once each player's talents are confirmed.
+    if LGT then
+        LGT.RegisterCallback(Cooldowns, "LibGroupTalents_Update", "OnTalentUpdate")
+    end
 
     self:RegisterChatCommand("cooldowns", "OpenConfig")
     self:RegisterChatCommand("cd",        "OpenConfig")
