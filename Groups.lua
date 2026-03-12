@@ -33,6 +33,7 @@ local MIN_W        = 100    -- minimum group frame width
 local DEFAULT_W    = 260
 local MIN_ROW_H    = 10     -- minimum configurable row height
 local MAX_ROW_H    = 50     -- maximum configurable row height
+local BAR_ALPHA    = 0.45   -- alpha for all active/ready progress bars
 
 -- ============================================================
 -- Flat backdrop (shared with Skin.lua style)
@@ -216,21 +217,27 @@ local function UpdateRow(row, data, rowWidth, gConfig)
     -- Timer
     row.timerText:SetText(FormatTime(data.timeLeft))
 
-    -- Progress bar
+    -- Progress bar: fills from left as cooldown elapses.
+    -- pct represents how much of the cooldown has passed (0 = just cast, 1 = ready).
+    local colorByClass = gConfig and gConfig.colorBarByClass
     if data.timeLeft > 0 and data.dur > 0 then
-        local pct = data.timeLeft / data.dur
+        local pct = 1 - (data.timeLeft / data.dur)
         local w   = math.max(1, (rowWidth or row:GetWidth()) * pct)
         row.bar:SetWidth(w)
         -- Bar colour: class colour when colorBarByClass is enabled, else default blue.
-        if gConfig and gConfig.colorBarByClass then
-            row.bar:SetVertexColor(cc[1], cc[2], cc[3], 0.45)
+        if colorByClass then
+            row.bar:SetVertexColor(cc[1], cc[2], cc[3], BAR_ALPHA)
         else
-            row.bar:SetVertexColor(0.18, 0.56, 1.00, 0.45)
+            row.bar:SetVertexColor(0.18, 0.56, 1.00, BAR_ALPHA)
         end
     else
-        -- Ready — show a faint green full bar
+        -- Ready — full bar.
         row.bar:SetWidth(rowWidth or row:GetWidth())
-        row.bar:SetVertexColor(0.10, 0.70, 0.15, 0.30)
+        if colorByClass then
+            row.bar:SetVertexColor(cc[1], cc[2], cc[3], BAR_ALPHA)
+        else
+            row.bar:SetVertexColor(0.10, 0.70, 0.15, 0.30)
+        end
     end
 end
 
