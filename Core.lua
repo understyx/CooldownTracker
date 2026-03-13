@@ -30,7 +30,8 @@ ns.Cooldowns = Cooldowns
 -- Locals
 -- ============================================================
 
-local spellData    = ns.spellData
+local spellData         = ns.spellData
+local itemSpellAliases  = ns.itemSpellAliases or {}
 local GetTime      = GetTime
 local GetUnitName  = GetUnitName
 local UnitClass    = UnitClass
@@ -126,10 +127,18 @@ end
 local function RecordCast(srcName, spellID, destName)
     local entry = roster[srcName]
     if not entry then return end
-    local data = spellData[entry.class] and spellData[entry.class][spellID]
+    local classData  = spellData[entry.class]
+    local classEntry = classData and classData[spellID]
+    local itemEntry  = spellData["ITEMS"] and spellData["ITEMS"][spellID]
+    local data = classEntry or itemEntry
     if not data then return end
     local state = GetOrCreateUnitState(srcName)
-    local dur   = ComputeCooldownDuration(entry.unitID, spellData[entry.class], spellID)
+    local dur
+    if classEntry then
+        dur = ComputeCooldownDuration(entry.unitID, classData, spellID)
+    else
+        dur = itemEntry.dur   -- these item cooldowns are fixed and unaffected by talents
+    end
     state[spellID]          = state[spellID] or {}
     state[spellID].dur      = dur
     state[spellID].expTime  = GetTime() + dur
@@ -315,33 +324,38 @@ function Cooldowns:OnCLEUF(event,
         end
     end
 
-    local data = classData[spellID]
+    -- Translate heroic item spell IDs to their canonical (normal) counterpart
+    -- before looking up spell data so both versions share one cooldown bar.
+    local canonSpellID = itemSpellAliases[spellID] or spellID
+
+    local data = classData[canonSpellID]
+             or (spellData["ITEMS"] and spellData["ITEMS"][canonSpellID])
     if not data then return end
 
     if subEvent == "SPELL_CAST_SUCCESS" then
         -- Tricks of the Trade (57934) and Misdirection (34477): the
         -- cooldown starts when the aura on the target expires, not when the
         -- spell is cast.  Buffer the destination name here.
-        if spellID == 57934 or spellID == 34477 then
+        if canonSpellID == 57934 or canonSpellID == 34477 then
             local state = GetOrCreateUnitState(srcName)
-            state[spellID]                  = state[spellID] or {}
-            state[spellID].pendingDestName  = destName
+            state[canonSpellID]                  = state[canonSpellID] or {}
+            state[canonSpellID].pendingDestName  = destName
         else
-            RecordCast(srcName, spellID, destName)
+            RecordCast(srcName, canonSpellID, destName)
         end
 
     elseif subEvent == "SPELL_AURA_REMOVED"
-        and (spellID == 57934 or spellID == 34477) then
+        and (canonSpellID == 57934 or canonSpellID == 34477) then
         -- Aura fell off — the cooldown starts now.
         local state   = GetOrCreateUnitState(srcName)
-        local pending = state[spellID] and state[spellID].pendingDestName
-        RecordCast(srcName, spellID, pending or destName)
+        local pending = state[canonSpellID] and state[canonSpellID].pendingDestName
+        RecordCast(srcName, canonSpellID, pending or destName)
 
     elseif subEvent == "SPELL_RESURRECT"
         or ((subEvent == "SPELL_AURA_APPLIED" or subEvent == "SPELL_AURA_REFRESH")
-            and spellID == 47883) then
+            and canonSpellID == 47883) then
         -- Soulstone Resurrection (47883): triggered on AURA or RESURRECT.
-        RecordCast(srcName, spellID, destName)
+        RecordCast(srcName, canonSpellID, destName)
     end
 end
 
