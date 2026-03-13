@@ -225,6 +225,19 @@ ns.spellData = {
                     minus = true,
                     minusTabIndex = { 3 }, minusTalentIndex = { 8 }, minusPerPoint = { 13 } },
     },
+
+    -- ===== ITEMS =====
+    -- Item cooldowns tracked by their on-use spell ID (canonical = normal version).
+    -- Heroic variants that fire a different spell ID are aliased to the canonical
+    -- entry via ns.itemSpellAliases so both versions share a single cooldown bar.
+    ["ITEMS"] = {
+        -- Glowing Twilight Scale (Ruby Sanctum, all versions — 2 min cooldown)
+        -- Normal spell: 75490  Heroic spell: 75495 → aliased to 75490
+        [75490] = { dur = 120, index = 1 },
+        -- Sindragosa's Flawless Fang (ICC, all versions — 1 min cooldown)
+        -- Normal spell: 71635  Heroic spell: 71638 → aliased to 71635
+        [71635] = { dur = 60,  index = 2 },
+    },
 }
 
 -- Human-readable class names for the options UI.
@@ -239,12 +252,14 @@ ns.classDisplayNames = {
     ["SHAMAN"]      = "Shaman",
     ["WARLOCK"]     = "Warlock",
     ["WARRIOR"]     = "Warrior",
+    ["ITEMS"]       = "Items",
 }
 
 -- Canonical display order for classes in the options UI.
 ns.classOrder = {
     "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST",
     "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "DRUID",
+    "ITEMS",
 }
 
 -- Class colours (r, g, b) matching in-game class colours.
@@ -259,4 +274,13 @@ ns.classColors = {
     ["MAGE"]        = { 0.41, 0.80, 0.94 },
     ["WARLOCK"]     = { 0.58, 0.51, 0.79 },
     ["DRUID"]       = { 1.00, 0.49, 0.04 },
+    ["ITEMS"]       = { 1.00, 0.82, 0.00 },
+}
+
+-- Spell IDs for heroic item variants that differ from the normal-version spell ID,
+-- aliased to their canonical (normal) counterpart in spellData["ITEMS"] so both
+-- versions share a single cooldown bar.
+ns.itemSpellAliases = {
+    [75495] = 75490,   -- Glowing Twilight Scale (Heroic → Normal)
+    [71638] = 71635,   -- Sindragosa's Flawless Fang (Heroic → Normal)
 }
