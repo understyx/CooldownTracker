@@ -107,7 +107,7 @@ ns.spellData = {
                     minus = true,
                     minusTabIndex = { 2 }, minusTalentIndex = { 14 }, minusPerPoint = { 30 } },
         -- Lay on Hands
-        [48788] = { dur = 900, index = 5,
+        [48788] = { dur = 1200, index = 5,
                     minus = true,
                     minusTabIndex = { 1 }, minusTalentIndex = { 8 }, minusPerPoint = { 120 },
                     castableOnOthers = true },

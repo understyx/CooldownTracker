@@ -22,7 +22,9 @@ local Cooldowns = LibStub("AceAddon-3.0"):NewAddon(
     addonName,
     "AceConsole-3.0",
     "AceEvent-3.0",
-    "AceTimer-3.0"
+    "AceTimer-3.0",
+    "AceComm-3.0",
+    "AceSerializer-3.0"
 )
 ns.Cooldowns = Cooldowns
 
@@ -170,6 +172,9 @@ end
 ---     is simply absent.  When LGT fires LibGroupTalents_Update the
 ---     ReseedAfterTalentChange path calls this function again and seeds any
 ---     talents that are now confirmed.
+---   • Item spells (spellData["ITEMS"]): seeded for every player immediately,
+---     since any raid member can equip these items.  Bars start "Ready" and
+---     activate the first time the item is used.
 ---
 --- Existing entries (e.g. an active cooldown) are never overwritten.
 local function SeedUnitCooldowns(unitName, className, unitID)
@@ -202,6 +207,17 @@ local function SeedUnitCooldowns(unitName, className, unitID)
                 end
                 -- If talentsKnown is false we do nothing; the bar will appear
                 -- once LibGroupTalents_Update fires for this unit.
+            end
+        end
+    end
+
+    -- Seed item spells for every player: any raid member may equip these items.
+    -- These bars start in the "Ready" state and go on cooldown on first use.
+    local itemData = spellData["ITEMS"]
+    if itemData then
+        for spellID, data in pairs(itemData) do
+            if not state[spellID] then
+                state[spellID] = { dur = data.dur, expTime = 0 }
             end
         end
     end
@@ -342,6 +358,7 @@ function Cooldowns:OnCLEUF(event,
             state[canonSpellID].pendingDestName  = destName
         else
             RecordCast(srcName, canonSpellID, destName)
+            self:BroadcastCooldown(canonSpellID, srcName, destName)
         end
 
     elseif subEvent == "SPELL_AURA_REMOVED"
@@ -349,13 +366,24 @@ function Cooldowns:OnCLEUF(event,
         -- Aura fell off — the cooldown starts now.
         local state   = GetOrCreateUnitState(srcName)
         local pending = state[canonSpellID] and state[canonSpellID].pendingDestName
-        RecordCast(srcName, canonSpellID, pending or destName)
+        local target  = pending or destName
+        RecordCast(srcName, canonSpellID, target)
+        self:BroadcastCooldown(canonSpellID, srcName, target)
 
     elseif subEvent == "SPELL_RESURRECT"
         or ((subEvent == "SPELL_AURA_APPLIED" or subEvent == "SPELL_AURA_REFRESH")
             and canonSpellID == 47883) then
         -- Soulstone Resurrection (47883): triggered on AURA or RESURRECT.
         RecordCast(srcName, canonSpellID, destName)
+        self:BroadcastCooldown(canonSpellID, srcName, destName)
+
+    elseif (subEvent == "SPELL_AURA_APPLIED" or subEvent == "SPELL_AURA_REFRESH")
+        and canonSpellID == 66233 then
+        -- Ardent Defender (66233) is a passive paladin talent that procs and
+        -- prevents death.  It fires as a self-applied aura rather than a cast,
+        -- so we detect the cooldown via SPELL_AURA_APPLIED instead of CAST_SUCCESS.
+        RecordCast(srcName, canonSpellID, srcName)
+        self:BroadcastCooldown(canonSpellID, srcName, nil)
     end
 end
 
@@ -366,6 +394,7 @@ function Cooldowns:OnUSS(event, unitID, spellName)
         local unitName = GetUnitName(unitID)
         if unitName and roster[unitName] then
             RecordCast(unitName, 48477, "Unknown")
+            self:BroadcastCooldown(48477, unitName, nil)
         end
     end
 end
@@ -437,7 +466,8 @@ end
 --- Optional `roleFilter` table: keys are role names ("tank", "healer",
 --- "melee", "caster"), values are true to include.  If nil/empty every role
 --- is shown.  Roles are resolved via LibGroupTalents-1.0; units whose role
---- cannot be determined are always included (fail-open).
+--- has not yet been determined default to "melee" (DPS) so unscanned players
+--- do not bleed into tank- or healer-only groups.
 ---
 --- Optional `spellRoleFilter` table: spellRoleFilter[spellID] = { tank=true,
 --- ... }.  When set for a spell, only players whose role appears in the table
@@ -456,15 +486,17 @@ function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilter
 
     for unitName, state in pairs(cdState) do
         -- Unit-level role filter: skip units whose role is not selected.
+        -- Units whose role LGT has not yet resolved default to "melee" (DPS),
+        -- which is the sane default: unscanned players don't accidentally appear
+        -- in tank-only or healer-only filter groups.
         local includeUnit = true
         if hasRoleFilter then
             local rEntry = roster[unitName]
             if rEntry and LGT then
-                local role = LGT:GetUnitRole(rEntry.unitID)
-                if role and not roleFilter[role] then
+                local role = LGT:GetUnitRole(rEntry.unitID) or "melee"
+                if not roleFilter[role] then
                     includeUnit = false
                 end
-                -- role == nil means LGT hasn't resolved this unit yet; fail-open.
             end
         end
 
@@ -473,6 +505,7 @@ function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilter
                 if enabledSpells[spellID] and info.expTime then
                     -- Per-spell role filter: if this spell has role restrictions,
                     -- only include the caster when their role matches.
+                    -- Unknown roles again default to "melee" (DPS).
                     local includeSpell = true
                     local srf = spellRoleFilter and spellRoleFilter[spellID]
                     if srf then
@@ -483,11 +516,10 @@ function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilter
                         if hasSpellRestriction then
                             local rEntry = roster[unitName]
                             if rEntry and LGT then
-                                local role = LGT:GetUnitRole(rEntry.unitID)
-                                if role and not srf[role] then
+                                local role = LGT:GetUnitRole(rEntry.unitID) or "melee"
+                                if not srf[role] then
                                     includeSpell = false
                                 end
-                                -- role == nil → fail-open, include.
                             end
                         end
                     end
@@ -539,6 +571,51 @@ function Cooldowns:GetSpellDisplayName(spellID)
         spellNameCache[spellID] = GetSpellInfo(spellID) or ("Spell " .. spellID)
     end
     return spellNameCache[spellID]
+end
+
+-- ============================================================
+-- HomeCheck inter-addon comm sync
+-- ============================================================
+
+-- Comm channel prefix used by HomeCheck for addon-to-addon messaging.
+local HOMECHECK_PREFIX = "HomeCheck"
+
+--- Broadcast a detected cooldown to the raid using the HomeCheck protocol.
+--- Only fires when in a group; silently does nothing in solo play.
+function Cooldowns:BroadcastCooldown(spellID, playerName, target)
+    local channel
+    if GetNumRaidMembers() > 0 then
+        channel = "RAID"
+    elseif GetNumPartyMembers() > 0 then
+        channel = "PARTY"
+    else
+        return  -- solo play — nothing to broadcast
+    end
+    local msg = self:Serialize(spellID, playerName, target or "")
+    self:SendCommMessage(HOMECHECK_PREFIX, msg, channel)
+end
+
+--- Receive a HomeCheck addon message from another player.
+--- Parses the serialised payload and records the cooldown in our state.
+function Cooldowns:OnCommReceived(prefix, message, distribution, sender)
+    if prefix ~= HOMECHECK_PREFIX then return end
+    -- Ignore our own broadcasts to avoid double-counting.
+    if sender == UnitName("player") then return end
+
+    local ok, spellID, playerName, target = self:Deserialize(message)
+    if not ok then return end
+
+    spellID = tonumber(spellID)
+    if not spellID then return end
+
+    -- Resolve heroic spell aliases to the canonical ID.
+    spellID = itemSpellAliases[spellID] or spellID
+
+    -- Only act if the player is in our roster (i.e. in the same group).
+    if not roster[playerName] then return end
+
+    target = (target ~= "" and target) or nil
+    RecordCast(playerName, spellID, target)
 end
 
 -- ============================================================
@@ -658,6 +735,23 @@ function Cooldowns:OnEnable()
     else
         excludedShaman = 2825    -- Bloodlust: not available to Alliance
     end
+
+    -- Migrate enabledSpells: ensure every spell currently in spellData is
+    -- present in each group's enabledSpells table.  This silently adds newly
+    -- introduced spells (e.g. items added in a later version) to pre-existing
+    -- saved profiles without resetting user choices for other spells.
+    local allSpells = self:AllSpellsEnabled()
+    for _, groupCfg in pairs(self.db.profile.groups) do
+        groupCfg.enabledSpells = groupCfg.enabledSpells or {}
+        for spellID in pairs(allSpells) do
+            if groupCfg.enabledSpells[spellID] == nil then
+                groupCfg.enabledSpells[spellID] = true
+            end
+        end
+    end
+
+    -- Register the HomeCheck comm prefix for inter-addon cooldown sync.
+    self:RegisterComm(HOMECHECK_PREFIX, "OnCommReceived")
 
     self:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED", "OnCLEUF")
     self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED",    "OnUSS")
