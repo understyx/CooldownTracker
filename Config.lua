@@ -633,10 +633,27 @@ local function BuildGroupArgs(groupName)
         end,
     }
 
+    args.targetTextColorByClass = {
+        type   = "toggle",
+        name   = "Color text by target's class",
+        desc   = "Use the target player's class colour for the badge text "
+              .. "instead of the custom text colour below.",
+        order  = 54.5,
+        hidden = hiddenUnlessFloat,
+        get    = function()
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            return cfg and cfg.targetTextColorByClass or false
+        end,
+        set    = function(_, val)
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            if cfg then cfg.targetTextColorByClass = val end
+        end,
+    }
+
     args.targetTextColor = {
         type        = "color",
         name        = "Text color",
-        desc        = "Colour of the target name text.",
+        desc        = "Colour of the target name text (ignored when 'Color text by target's class' is enabled).",
         order       = 55,
         hasAlpha    = true,
         hidden      = hiddenUnlessFloat,

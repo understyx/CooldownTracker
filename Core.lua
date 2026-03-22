@@ -34,6 +34,7 @@ ns.Cooldowns = Cooldowns
 
 local spellData         = ns.spellData
 local itemSpellAliases  = ns.itemSpellAliases or {}
+local itemTrinketIDs    = ns.itemTrinketIDs   or {}
 local GetTime      = GetTime
 local GetUnitName  = GetUnitName
 local UnitClass    = UnitClass
@@ -211,13 +212,53 @@ local function SeedUnitCooldowns(unitName, className, unitID)
         end
     end
 
-    -- Seed item spells for every player: any raid member may equip these items.
-    -- These bars start in the "Ready" state and go on cooldown on first use.
+    -- Seed item spells only for players confirmed to have the trinket equipped.
+    -- Bars are NOT pre-seeded here; they are created on demand by either:
+    --   • CheckUnitTrinkets (equipped-item scan via inspect / inventory event)
+    --   • RecordCast (first observed use — creates the bar on cooldown)
+end
+
+--- Seed a single item-spell entry in the ready state for a unit.
+--- Called when the player is confirmed to have the trinket equipped.
+--- A no-op if the entry already exists (active cooldown must not be overwritten).
+local function SeedItemSpellForUnit(unitName, canonSpellID)
     local itemData = spellData["ITEMS"]
-    if itemData then
-        for spellID, data in pairs(itemData) do
-            if not state[spellID] then
-                state[spellID] = { dur = data.dur, expTime = 0 }
+    local data = itemData and itemData[canonSpellID]
+    if not data then return end
+    local state = GetOrCreateUnitState(unitName)
+    if not state[canonSpellID] then
+        state[canonSpellID] = { dur = data.dur, expTime = 0 }
+    end
+end
+
+-- Inventory slots for upper and lower trinket respectively.
+local TRINKET_SLOT_1 = 13
+local TRINKET_SLOT_2 = 14
+
+--- Check a unit's equipped trinket slots and seed item-spell bars for any
+--- tracked trinkets found.  Uses the WoW inspect cache for remote players
+--- (valid during and immediately after a LibGroupTalents inspect cycle) and
+--- the direct player inventory for the local player at all times.
+local function CheckUnitTrinkets(unitName, unitID)
+    local itemData = spellData["ITEMS"]
+    if not itemData then return end
+    for canonSpellID in pairs(itemData) do
+        local trinketIDs = itemTrinketIDs[canonSpellID]
+        if trinketIDs then
+            local state = cdState[unitName]
+            -- Only seed if the bar is not already tracked.
+            if not (state and state[canonSpellID]) then
+                for _, slot in ipairs({ TRINKET_SLOT_1, TRINKET_SLOT_2 }) do
+                    local equipped = GetInventoryItemID(unitID, slot)
+                    if equipped then
+                        for _, knownID in ipairs(trinketIDs) do
+                            if equipped == knownID then
+                                SeedItemSpellForUnit(unitName, canonSpellID)
+                                break
+                            end
+                        end
+                    end
+                end
             end
         end
     end
@@ -247,6 +288,11 @@ local function AddUnit(unitID)
     if not className or not unitName or unitName == UNKNOWNOBJECT then return end
     roster[unitName] = { class = className, unitID = unitID, guid = UnitGUID(unitID) }
     SeedUnitCooldowns(unitName, className, unitID)
+    -- For the local player the inventory API is always available; check trinket
+    -- slots immediately.  Remote players are handled when LGT fires after inspect.
+    if UnitIsUnit(unitID, "player") then
+        CheckUnitTrinkets(unitName, unitID)
+    end
 end
 
 local function RemoveUnit(unitName)
@@ -294,9 +340,15 @@ local function RefreshRoster()
                     local state = cdState[unitName]
                     if state then
                         for spellID, entry in pairs(saved) do
-                            if state[spellID] and entry.expireAt then
+                            if entry.expireAt then
                                 local remaining = entry.expireAt - wallNow
                                 if remaining > 0 then
+                                    -- Create the state entry if absent (e.g. item bars
+                                    -- that are no longer pre-seeded but were active
+                                    -- before the /reload).
+                                    if not state[spellID] then
+                                        state[spellID] = { dur = entry.dur, expTime = 0 }
+                                    end
                                     -- Cooldown still active — restore expiry and metadata.
                                     state[spellID].dur      = entry.dur
                                     state[spellID].destName = entry.destName
@@ -403,6 +455,16 @@ function Cooldowns:OnRosterUpdate()
     self:ScheduleTimer(RefreshRoster, 0.5)
 end
 
+--- Fires when the local player's inventory changes (e.g. equipping a trinket).
+--- Re-scans trinket slots so newly-equipped items immediately get a bar.
+function Cooldowns:OnUnitInventoryChanged(event, unitID)
+    if not unitID or not UnitIsUnit(unitID, "player") then return end
+    local unitName = UnitName("player")
+    if unitName and roster[unitName] then
+        CheckUnitTrinkets(unitName, unitID)
+    end
+end
+
 function Cooldowns:OnPlayerEnteringWorld()
     self:ScheduleTimer(RefreshRoster, 1)
 end
@@ -445,6 +507,9 @@ function Cooldowns:OnTalentUpdate(event, guid)
     for unitName, entry in pairs(roster) do
         if entry.guid == guid then
             ReseedAfterTalentChange(unitName, entry.class, entry.unitID)
+            -- LGT just finished inspecting this player; the inspect cache is
+            -- still valid here, so check their trinket slots for tracked items.
+            CheckUnitTrinkets(unitName, entry.unitID)
             return
         end
     end
@@ -526,8 +591,22 @@ function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilter
 
                     if includeSpell then
                         local timeLeft = info.expTime - now
+                        -- Issue 1: clear the cast target once the cooldown expires
+                        -- so inline/float labels disappear on the "Ready" bar.
+                        if timeLeft <= 0 and info.destName then
+                            info.destName = nil
+                        end
                         if not spellIconCache[spellID] then
-                            spellIconCache[spellID] = select(3, GetSpellInfo(spellID))
+                            -- For item trinket spells, prefer the item icon so the
+                            -- bar shows the trinket artwork rather than the effect icon.
+                            local trinketIDs = itemTrinketIDs[spellID]
+                            if trinketIDs then
+                                local itemTex = select(10, GetItemInfo(trinketIDs[1]))
+                                spellIconCache[spellID] = itemTex
+                                    or select(3, GetSpellInfo(spellID))
+                            else
+                                spellIconCache[spellID] = select(3, GetSpellInfo(spellID))
+                            end
                         end
                         local className = roster[unitName] and roster[unitName].class or ""
                         -- Resolve the target's class for colour coding.
@@ -668,6 +747,7 @@ function Cooldowns:CreateGroup(name)
         targetDisplay         = "none",
         -- Floating target badge appearance.
         targetFontSize        = 11,
+        targetTextColorByClass = false,
         targetTextR           = 1.0,
         targetTextG           = 1.0,
         targetTextB           = 1.0,
@@ -744,6 +824,7 @@ function Cooldowns:OnInitialize()
             -- Target display defaults.
             targetDisplay         = "none",
             targetFontSize        = 11,
+            targetTextColorByClass = false,
             targetTextR           = 1.0,
             targetTextG           = 1.0,
             targetTextB           = 1.0,
@@ -799,6 +880,9 @@ function Cooldowns:OnEnable()
     -- PLAYER_LOGOUT does NOT fire on /reload.  Saving here ensures the
     -- cdState is persisted before the Lua environment is torn down.
     self:RegisterEvent("PLAYER_LEAVING_WORLD",        "OnPlayerLogout")
+    -- Re-check trinket slots whenever the local player's inventory changes
+    -- (e.g. they swap in a tracked trinket during a session).
+    self:RegisterEvent("UNIT_INVENTORY_CHANGED",      "OnUnitInventoryChanged")
 
     -- Subscribe to LibGroupTalents talent-received / respec events so we can
     -- seed talent-required spell bars once each player's talents are confirmed.

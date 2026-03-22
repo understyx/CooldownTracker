@@ -275,10 +275,17 @@ local function UpdateRow(row, data, rowWidth, gConfig)
 
         fText:SetFont("Fonts\\FRIZQT__.TTF",
             math.max(6, gConfig.targetFontSize or 11), "")
-        local tR = gConfig.targetTextR or 1
-        local tG = gConfig.targetTextG or 1
-        local tB = gConfig.targetTextB or 1
-        local tA = gConfig.targetTextA or 1
+        -- Text colour: class colour when enabled, otherwise user-configured.
+        local tR, tG, tB, tA
+        if gConfig.targetTextColorByClass and data.destClass then
+            local dc = classColors[data.destClass] or { 1, 1, 1 }
+            tR, tG, tB, tA = dc[1], dc[2], dc[3], 1
+        else
+            tR = gConfig.targetTextR or 1
+            tG = gConfig.targetTextG or 1
+            tB = gConfig.targetTextB or 1
+            tA = gConfig.targetTextA or 1
+        end
         fText:SetTextColor(tR, tG, tB, tA)
         fText:SetText(data.destName)
 

@@ -284,3 +284,12 @@ ns.itemSpellAliases = {
     [75495] = 75490,   -- Glowing Twilight Scale (Heroic → Normal)
     [71638] = 71635,   -- Sindragosa's Flawless Fang (Heroic → Normal)
 }
+
+-- Maps each canonical item-spell ID to the item IDs of the trinkets that
+-- trigger it (normal version first, heroic second).  Used to:
+--   1. Detect trinket ownership by inspecting equipped item slots.
+--   2. Display the trinket item icon instead of the on-use spell icon.
+ns.itemTrinketIDs = {
+    [75490] = { 54573, 54589 },   -- Glowing Twilight Scale (Normal, Heroic)
+    [71635] = { 50361, 50364 },   -- Sindragosa's Flawless Fang (Normal, Heroic)
+}
