@@ -139,6 +139,34 @@ LibFramePool:CreatePool(POOL_KEY, function(parent)
     timerText:SetJustifyH("RIGHT")
     row.timerText = timerText
 
+    -- Inline target name: appears between spell text and the timer.
+    -- Shown only when targetDisplay == "inline" and a destName is available.
+    local destInlineText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    destInlineText:SetPoint("LEFT", timerText, "LEFT", -96, 0)
+    destInlineText:SetWidth(92)
+    destInlineText:SetJustifyH("LEFT")
+    destInlineText:SetWordWrap(false)
+    destInlineText:Hide()
+    row.destInlineText = destInlineText
+
+    -- Floating target badge: a small styled frame for "float" mode.
+    -- Configurable background colour, text size, and text colour.
+    local floatFrame = CreateFrame("Frame", nil, row)
+    floatFrame:SetFrameLevel(row:GetFrameLevel() + 2)
+    floatFrame:SetBackdrop(flatBackdrop)
+    floatFrame:SetBackdropColor(0, 0, 0, 0.75)
+    floatFrame:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+    floatFrame:Hide()
+    row.destFloatFrame = floatFrame
+
+    local floatText = floatFrame:CreateFontString(nil, "OVERLAY")
+    floatText:SetFont("Fonts\\FRIZQT__.TTF", 11, "")
+    floatText:SetAllPoints(floatFrame)
+    floatText:SetJustifyH("CENTER")
+    floatText:SetJustifyV("MIDDLE")
+    floatText:SetWordWrap(false)
+    row.destFloatText = floatText
+
     -- Click-to-chat:
     --   Shift+Click  → raid/party/say: [name] - [spell] - [state]
     --   Alt+Click    → whisper player: "Please use [spell] on me"
@@ -187,6 +215,9 @@ local function UpdateRow(row, data, rowWidth, gConfig)
     -- Store a reference so click handlers can access it.
     row._cdData = data
 
+    local targetMode = gConfig and gConfig.targetDisplay or "none"
+    local hasTarget  = data.destName and data.destName ~= ""
+
     -- Icon: show or hide based on config (default: show).
     if gConfig and gConfig.showIcon ~= false then
         row.icon:Show()
@@ -212,6 +243,53 @@ local function UpdateRow(row, data, rowWidth, gConfig)
         row.spellText:SetText(Cooldowns:GetSpellDisplayName(data.spellID))
     else
         row.spellText:Hide()
+    end
+
+    -- ---- Inline target display ----
+    -- Shows "-> TargetName" in the target's class colour between the spell
+    -- text and the timer.  Re-uses the same font as the player name text.
+    if targetMode == "inline" and hasTarget then
+        local dc = classColors[data.destClass] or { 1, 1, 1 }
+        row.destInlineText:SetText("-> " .. data.destName)
+        row.destInlineText:SetTextColor(dc[1], dc[2], dc[3])
+        row.destInlineText:Show()
+    else
+        row.destInlineText:Hide()
+    end
+
+    -- ---- Floating target badge ----
+    if targetMode == "float" and hasTarget then
+        local fFrame = row.destFloatFrame
+        local fText  = row.destFloatText
+
+        -- Apply configurable appearance.
+        local bgW  = math.max(20, gConfig.targetBgWidth  or 90)
+        local bgH  = math.max(8,  gConfig.targetBgHeight or 16)
+        fFrame:SetSize(bgW, bgH)
+
+        local bgR = gConfig.targetBgR or 0
+        local bgG = gConfig.targetBgG or 0
+        local bgB = gConfig.targetBgB or 0
+        local bgA = gConfig.targetBgA or 0.75
+        fFrame:SetBackdropColor(bgR, bgG, bgB, bgA)
+
+        fText:SetFont("Fonts\\FRIZQT__.TTF",
+            math.max(6, gConfig.targetFontSize or 11), "")
+        local tR = gConfig.targetTextR or 1
+        local tG = gConfig.targetTextG or 1
+        local tB = gConfig.targetTextB or 1
+        local tA = gConfig.targetTextA or 1
+        fText:SetTextColor(tR, tG, tB, tA)
+        fText:SetText(data.destName)
+
+        -- Position: centred vertically in the row, sitting just left of the
+        -- timer text so it never overlaps it.
+        fFrame:ClearAllPoints()
+        fFrame:SetPoint("RIGHT", row.timerText, "LEFT", -4, 0)
+
+        fFrame:Show()
+    else
+        row.destFloatFrame:Hide()
     end
 
     -- Timer

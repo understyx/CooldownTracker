@@ -568,6 +568,159 @@ local function BuildGroupArgs(groupName)
         }
     end
 
+    -- ---- Target Display ----
+    args.targetDisplayHeader = {
+        type  = "header",
+        name  = "Target Display",
+        order = 50,
+    }
+
+    args.targetDisplayDesc = {
+        type  = "description",
+        name  = "Show the name of the player a spell was cast on.\n"
+             .. "Inline: appended to the spell name on the bar, "
+             ..   "coloured with the target's class colour.\n"
+             .. "Float: a separate styled badge whose appearance can be "
+             ..   "customised below.",
+        order = 51,
+    }
+
+    args.targetDisplay = {
+        type   = "select",
+        name   = "Mode",
+        desc   = "Choose how (or whether) the cast target is shown.",
+        order  = 52,
+        values = { none = "None", inline = "Inline", float = "Float" },
+        get    = function()
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            return (cfg and cfg.targetDisplay) or "none"
+        end,
+        set    = function(_, val)
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            if cfg then cfg.targetDisplay = val end
+        end,
+    }
+
+    -- Float sub-settings — only visible when mode == "float".
+    local function hiddenUnlessFloat()
+        local cfg = Cooldowns.db.profile.groups[groupName]
+        return not (cfg and cfg.targetDisplay == "float")
+    end
+
+    args.targetFloatHeader = {
+        type   = "header",
+        name   = "Float Appearance",
+        order  = 53,
+        hidden = hiddenUnlessFloat,
+    }
+
+    args.targetFontSize = {
+        type   = "range",
+        name   = "Text size",
+        desc   = "Font size of the target name in the floating badge.",
+        order  = 54,
+        min    = 6,
+        max    = 20,
+        step   = 1,
+        hidden = hiddenUnlessFloat,
+        get    = function()
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            return (cfg and cfg.targetFontSize) or 11
+        end,
+        set    = function(_, val)
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            if cfg then cfg.targetFontSize = val end
+        end,
+    }
+
+    args.targetTextColor = {
+        type        = "color",
+        name        = "Text color",
+        desc        = "Colour of the target name text.",
+        order       = 55,
+        hasAlpha    = true,
+        hidden      = hiddenUnlessFloat,
+        get         = function()
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            return (cfg and cfg.targetTextR) or 1,
+                   (cfg and cfg.targetTextG) or 1,
+                   (cfg and cfg.targetTextB) or 1,
+                   (cfg and cfg.targetTextA) or 1
+        end,
+        set         = function(_, r, g, b, a)
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            if cfg then
+                cfg.targetTextR = r
+                cfg.targetTextG = g
+                cfg.targetTextB = b
+                cfg.targetTextA = a
+            end
+        end,
+    }
+
+    args.targetBgColor = {
+        type        = "color",
+        name        = "Background color",
+        desc        = "Background fill colour of the floating badge.",
+        order       = 56,
+        hasAlpha    = true,
+        hidden      = hiddenUnlessFloat,
+        get         = function()
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            return (cfg and cfg.targetBgR) or 0,
+                   (cfg and cfg.targetBgG) or 0,
+                   (cfg and cfg.targetBgB) or 0,
+                   (cfg and cfg.targetBgA) or 0.75
+        end,
+        set         = function(_, r, g, b, a)
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            if cfg then
+                cfg.targetBgR = r
+                cfg.targetBgG = g
+                cfg.targetBgB = b
+                cfg.targetBgA = a
+            end
+        end,
+    }
+
+    args.targetBgWidth = {
+        type   = "range",
+        name   = "Badge width",
+        desc   = "Width of the floating badge background in pixels.",
+        order  = 57,
+        min    = 20,
+        max    = 200,
+        step   = 2,
+        hidden = hiddenUnlessFloat,
+        get    = function()
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            return (cfg and cfg.targetBgWidth) or 90
+        end,
+        set    = function(_, val)
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            if cfg then cfg.targetBgWidth = val end
+        end,
+    }
+
+    args.targetBgHeight = {
+        type   = "range",
+        name   = "Badge height",
+        desc   = "Height of the floating badge background in pixels.",
+        order  = 58,
+        min    = 8,
+        max    = 50,
+        step   = 1,
+        hidden = hiddenUnlessFloat,
+        get    = function()
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            return (cfg and cfg.targetBgHeight) or 16
+        end,
+        set    = function(_, val)
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            if cfg then cfg.targetBgHeight = val end
+        end,
+    }
+
     return args
 end
 

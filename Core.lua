@@ -530,12 +530,21 @@ function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilter
                             spellIconCache[spellID] = select(3, GetSpellInfo(spellID))
                         end
                         local className = roster[unitName] and roster[unitName].class or ""
+                        -- Resolve the target's class for colour coding.
+                        -- Check roster first (target is usually in the same group),
+                        -- then fall back to nil (displays in white).
+                        local destClass = nil
+                        if info.destName then
+                            local destEntry = roster[info.destName]
+                            destClass = destEntry and destEntry.class
+                        end
                         tinsert(result, {
                             srcName   = unitName,
                             spellID   = spellID,
                             timeLeft  = timeLeft,
                             dur       = info.dur,
                             destName  = info.destName,
+                            destClass = destClass,
                             icon      = spellIconCache[spellID],
                             className = className,
                         })
@@ -655,6 +664,20 @@ function Cooldowns:CreateGroup(name)
         enabledSpells     = self:AllSpellsEnabled(),
         roleFilter        = {},
         spellRoleFilter   = {},
+        -- Target display ("none" / "inline" / "float").
+        targetDisplay         = "none",
+        -- Floating target badge appearance.
+        targetFontSize        = 11,
+        targetTextR           = 1.0,
+        targetTextG           = 1.0,
+        targetTextB           = 1.0,
+        targetTextA           = 1.0,
+        targetBgR             = 0.0,
+        targetBgG             = 0.0,
+        targetBgB             = 0.0,
+        targetBgA             = 0.75,
+        targetBgWidth         = 90,
+        targetBgHeight        = 16,
     }
     tinsert(self.db.profile.groupOrder, name)
     if ns.CreateGroupFrame then
@@ -718,6 +741,19 @@ function Cooldowns:OnInitialize()
             enabledSpells     = self:AllSpellsEnabled(),
             roleFilter        = {},
             spellRoleFilter   = {},
+            -- Target display defaults.
+            targetDisplay         = "none",
+            targetFontSize        = 11,
+            targetTextR           = 1.0,
+            targetTextG           = 1.0,
+            targetTextB           = 1.0,
+            targetTextA           = 1.0,
+            targetBgR             = 0.0,
+            targetBgG             = 0.0,
+            targetBgB             = 0.0,
+            targetBgA             = 0.75,
+            targetBgWidth         = 90,
+            targetBgHeight        = 16,
         }
         tinsert(self.db.profile.groupOrder, groupName)
     end
