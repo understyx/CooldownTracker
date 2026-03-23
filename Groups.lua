@@ -71,10 +71,20 @@ end
 local function FormatChatMessage(template, data)
     local spellName  = Cooldowns:GetSpellChatName(data.spellID)
     local timeStr    = FormatTimeChat(data.timeLeft)
+    local spellLink
+    if data.isItem then
+        -- Core.lua already handles looking up the item link for trinkets
+        spellLink = Cooldowns:GetSpellChatName(data.spellID)
+    else
+        -- WoW API generates the clickable spell link
+        spellLink = GetSpellLink(data.spellID) or spellName
+    end
     local targetName = data.destName or ""
+    local hasTarget  = (data.destName and data.destName ~= "")
     local msg = template
     msg = msg:gsub("%%playerName", data.srcName)
     msg = msg:gsub("%%spellName",  spellName)
+    msg = msg:gsub("%%spellLink",  spellLink)
     msg = msg:gsub("%%targetName", targetName)
     msg = msg:gsub("%%timeLeft",   timeStr)
     if data.timeLeft > 0 then
@@ -83,6 +93,12 @@ local function FormatChatMessage(template, data)
     else
         -- ready: remove the entire %condCD(...) token
         msg = msg:gsub("%%condCD%((.-)%)", "")
+    end
+
+    if hasTarget then
+        msg = msg:gsub("%%condTarget%((.-)%)", "%1")
+    else
+        msg = msg:gsub("%%condTarget%((.-)%)", "")
     end
     return msg
 end
@@ -206,7 +222,7 @@ LibFramePool:CreatePool(POOL_KEY, function(parent)
 
         if IsShiftKeyDown() then
             local tmpl = (gConfig and gConfig.shiftClickTemplate)
-                      or "[%playerName] - [%spellName] - [%timeLeft]"
+                      or "%playerName - %spellLink - %condCD(On Cooldown: )%timeLeft %condTarget(- Last Target: %targetName)"
             local msg = FormatChatMessage(tmpl, data)
             local channel
             if GetNumRaidMembers() > 0 then

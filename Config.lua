@@ -575,6 +575,28 @@ local function BuildGroupArgs(groupName)
         order = 50,
     }
 
+    args.targetInlineOffsetX = {
+        type   = "range",
+        name   = "Inline X Offset",
+        desc   = "Adjust the horizontal position of the inline target text.",
+        order  = 52.5,
+        min    = -200,
+        max    = 200,
+        step   = 1,
+        hidden = function()
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            return not (cfg and cfg.targetDisplay == "inline")
+        end,
+        get    = function()
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            return (cfg and cfg.targetInlineOffsetX) or 0
+        end,
+        set    = function(_, val)
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            if cfg then cfg.targetInlineOffsetX = val end
+        end,
+    }
+
     args.targetDisplayDesc = {
         type  = "description",
         name  = "Show the name of the player a spell was cast on.\n"
@@ -700,6 +722,60 @@ local function BuildGroupArgs(groupName)
         end,
     }
 
+    args.targetBgColorByClass = {
+        type   = "toggle",
+        name   = "Color background by target's class",
+        desc   = "Use the target player's class colour for the badge background instead of the custom colour.",
+        order  = 56.5,
+        hidden = hiddenUnlessFloat,
+        get    = function()
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            return cfg and cfg.targetBgColorByClass or false
+        end,
+        set    = function(_, val)
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            if cfg then cfg.targetBgColorByClass = val end
+        end,
+    }
+
+    args.targetFloatOffsetX = {
+        type   = "range",
+        name   = "Badge X Offset",
+        desc   = "Horizontal offset for the floating badge.",
+        order  = 59,
+        min    = -200,
+        max    = 200,
+        step   = 1,
+        hidden = hiddenUnlessFloat,
+        get    = function()
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            return (cfg and cfg.targetFloatOffsetX) or 0
+        end,
+        set    = function(_, val)
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            if cfg then cfg.targetFloatOffsetX = val end
+        end,
+    }
+
+    args.targetFloatOffsetY = {
+        type   = "range",
+        name   = "Badge Y Offset",
+        desc   = "Vertical offset for the floating badge.",
+        order  = 60,
+        min    = -100,
+        max    = 100,
+        step   = 1,
+        hidden = hiddenUnlessFloat,
+        get    = function()
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            return (cfg and cfg.targetFloatOffsetY) or 0
+        end,
+        set    = function(_, val)
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            if cfg then cfg.targetFloatOffsetY = val end
+        end,
+    }
+
     args.targetBgWidth = {
         type   = "range",
         name   = "Badge width",
@@ -735,6 +811,55 @@ local function BuildGroupArgs(groupName)
         set    = function(_, val)
             local cfg = Cooldowns.db.profile.groups[groupName]
             if cfg then cfg.targetBgHeight = val end
+        end,
+    }
+
+    -- ---- Chat Message Templates ----
+    args.chatMessagesHeader = {
+        type  = "header",
+        name  = "Chat Messages",
+        order = 70,
+    }
+
+    args.chatMessagesDesc = {
+        type  = "description",
+        name  = "Customize the text sent when clicking a cooldown row.\n"
+             .. "Available tokens: %playerName, %spellName, %spellLink, %targetName, %timeLeft\n"
+             .. "Conditional text:\n"
+             .. "  %condCD(text) — shows only when the spell is on cooldown.\n"
+             .. "  %condTarget(text) — shows only when the cast had a specific target.",
+        order = 71,
+    }
+
+    args.shiftClickTemplate = {
+        type  = "input",
+        name  = "Shift-Click Template",
+        desc  = "Sent to Raid/Party/Say.",
+        order = 72,
+        width = "full",
+        get   = function()
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            return cfg and cfg.shiftClickTemplate or "%playerName - %spellLink - %condCD(On Cooldown: )%timeLeft %condTarget(- Last Target: %targetName)"
+        end,
+        set   = function(_, val)
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            if cfg then cfg.shiftClickTemplate = val end
+        end,
+    }
+
+    args.altClickTemplate = {
+        type  = "input",
+        name  = "Alt-Click Template",
+        desc  = "Whispered to the player (only works if the spell is Ready).",
+        order = 73,
+        width = "full",
+        get   = function()
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            return cfg and cfg.altClickTemplate or "Please use %spellName on me"
+        end,
+        set   = function(_, val)
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            if cfg then cfg.altClickTemplate = val end
         end,
     }
 

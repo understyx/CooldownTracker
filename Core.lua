@@ -832,7 +832,7 @@ function Cooldowns:CreateGroup(name)
         -- Chat message templates.
         -- Supported tokens: %playerName %spellName %targetName %timeLeft
         --   %condCD(text)  — "text" printed only when spell is on cooldown.
-        shiftClickTemplate    = "[%playerName] - [%spellName] - [%timeLeft]",
+        shiftClickTemplate    = "%playerName - %spellLink - %condCD(On Cooldown: )%timeLeft %condTarget(- Last Target: %targetName)",
         altClickTemplate      = "Please use %spellName on me",
     }
     tinsert(self.db.profile.groupOrder, name)
@@ -915,7 +915,7 @@ function Cooldowns:OnInitialize()
             targetBgHeight        = 16,
             targetFloatOffsetX    = 0,
             targetFloatOffsetY    = 0,
-            shiftClickTemplate    = "[%playerName] - [%spellName] - [%timeLeft]",
+            shiftClickTemplate    = "%playerName - %spellLink - %condCD(On Cooldown: )%timeLeft %condTarget(- Last Target: %targetName)",
             altClickTemplate      = "Please use %spellName on me",
         }
         tinsert(self.db.profile.groupOrder, groupName)
