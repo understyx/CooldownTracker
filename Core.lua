@@ -163,6 +163,16 @@ local function IterateGroupMembers()
     return t
 end
 
+local CHEST_SLOT = 5
+
+--- Helper to check if the WoW 3.3.5 inspect cache is actually loaded.
+--- If the cache is empty/expired, GetInventoryItemID returns nil.
+--- By checking a slot almost universally worn (Chest), we prevent false wipes.
+local function IsInspectCacheValid(unitID)
+    if UnitIsUnit(unitID, "player") then return true end
+    return GetInventoryItemID(unitID, CHEST_SLOT) ~= nil
+end
+
 --- Seeds cooldown entries for a single unit.
 ---
 --- Strategy:
@@ -240,6 +250,8 @@ local TRINKET_SLOT_2 = 14
 --- (valid during and immediately after a LibGroupTalents inspect cycle) and
 --- the direct player inventory for the local player at all times.
 local function CheckUnitTrinkets(unitName, unitID)
+    if not IsInspectCacheValid(unitID) then return end 
+
     local itemData = spellData["ITEMS"]
     if not itemData then return end
     for canonSpellID in pairs(itemData) do
@@ -272,6 +284,10 @@ local function PruneItemBarsForUnit(unitName, unitID)
     if not state then return end
     local itemData = spellData["ITEMS"]
     if not itemData then return end
+
+    -- CRITICAL: Do not delete bars if the cache is just empty
+    if not IsInspectCacheValid(unitID) then return end 
+
     local now = GetTime()
     for canonSpellID in pairs(itemData) do
         local info = state[canonSpellID]
@@ -408,6 +424,7 @@ local function RefreshRoster()
             end
         end
     end
+    Cooldowns:BroadcastTrinkets()
 end
 
 -- ============================================================
@@ -509,6 +526,9 @@ function Cooldowns:OnUnitInventoryChanged(event, unitID)
     if unitName and roster[unitName] then
         PruneItemBarsForUnit(unitName, unitID)
         CheckUnitTrinkets(unitName, unitID)
+        
+        -- Broadcast the change so other players' addons pick it up instantly
+        self:BroadcastTrinkets()
     end
 end
 
@@ -679,6 +699,7 @@ function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilter
                             destClass = destClass,
                             icon      = spellIconCache[spellID],
                             className = className,
+                            classColor = roster[unitName] and roster[unitName].class or "",
                             isItem    = isItem,
                         })
                     end
@@ -734,6 +755,25 @@ end
 -- Comm channel prefix used by HomeCheck for addon-to-addon messaging.
 local HOMECHECK_PREFIX = "HomeCheck"
 
+
+function Cooldowns:BroadcastTrinkets()
+    local channel
+    if GetNumRaidMembers() > 0 then
+        channel = "RAID"
+    elseif GetNumPartyMembers() > 0 then
+        channel = "PARTY"
+    else
+        return -- solo play
+    end
+    
+    local t1 = GetInventoryItemID("player", 13) or 0
+    local t2 = GetInventoryItemID("player", 14) or 0
+    
+    -- Send a specific "TRINKETS" payload
+    local msg = self:Serialize("TRINKETS", UnitName("player"), t1, t2)
+    self:SendCommMessage(HOMECHECK_PREFIX, msg, channel)
+end
+
 --- Broadcast a detected cooldown to the raid using the HomeCheck protocol.
 --- Only fires when in a group; silently does nothing in solo play.
 function Cooldowns:BroadcastCooldown(spellID, playerName, target)
@@ -749,27 +789,189 @@ function Cooldowns:BroadcastCooldown(spellID, playerName, target)
     self:SendCommMessage(HOMECHECK_PREFIX, msg, channel)
 end
 
---- Receive a HomeCheck addon message from another player.
---- Parses the serialised payload and records the cooldown in our state.
-function Cooldowns:OnCommReceived(prefix, message, distribution, sender)
-    if prefix ~= HOMECHECK_PREFIX then return end
-    -- Ignore our own broadcasts to avoid double-counting.
-    if sender == UnitName("player") then return end
-
-    local ok, spellID, playerName, target = self:Deserialize(message)
-    if not ok then return end
+local function ApplySyncedCooldown(playerName, spellID, CDLeft, target)
+    if not spellID or not playerName then return end
+    if not roster[playerName] then return end -- Ignore players not in our group
 
     spellID = tonumber(spellID)
     if not spellID then return end
 
-    -- Resolve heroic spell aliases to the canonical ID.
+    -- Resolve aliases (e.g., Heroic vs Normal trinkets)
     spellID = itemSpellAliases[spellID] or spellID
 
-    -- Only act if the player is in our roster (i.e. in the same group).
-    if not roster[playerName] then return end
+    -- Ensure we actually track this spell for their class (or items)
+    local entry = roster[playerName]
+    local classData = spellData[entry.class]
+    local data = (classData and classData[spellID]) or (spellData["ITEMS"] and spellData["ITEMS"][spellID])
+    if not data then return end
 
     target = (target ~= "" and target) or nil
-    RecordCast(playerName, spellID, target)
+
+    if CDLeft == nil or CDLeft == true then
+        -- We only received a cast event, treat it as a fresh cast
+        RecordCast(playerName, spellID, target)
+    else
+        CDLeft = tonumber(CDLeft)
+        if not CDLeft then return end
+        
+        local state = GetOrCreateUnitState(playerName)
+        state[spellID] = state[spellID] or {}
+        
+        if CDLeft <= 0 then
+            -- The remote addon is explicitly telling us the spell is ready
+            state[spellID].dur      = state[spellID].dur or data.dur
+            state[spellID].expTime  = 0
+            state[spellID].destName = nil
+        else
+            -- The remote addon is syncing an active cooldown timer
+            local computedDur = (classData and classData[spellID]) 
+                and ComputeCooldownDuration(entry.unitID, classData, spellID) 
+                or data.dur
+            
+            -- Set the duration to whichever is larger to ensure the progress bar renders correctly
+            state[spellID].dur      = math.max(computedDur, CDLeft)
+            state[spellID].expTime  = GetTime() + CDLeft
+            state[spellID].destName = target or state[spellID].destName
+        end
+    end
+end
+
+
+local inspectRoster = {}
+local inspectIndex  = 1
+
+--- Aggressively but safely asks the server for PUGs' gear data.
+--- Limited to 1 player per tick to avoid breaking GearScore/LGT.
+local function PoliteInspectTick()
+    if InCombatLockdown() then return end
+
+    wipe(inspectRoster)
+    for _, entry in pairs(roster) do
+        if not UnitIsUnit(entry.unitID, "player") then
+            tinsert(inspectRoster, entry.unitID)
+        end
+    end
+
+    if #inspectRoster == 0 then return end
+
+    inspectIndex = inspectIndex > #inspectRoster and 1 or inspectIndex
+    local targetUnit = inspectRoster[inspectIndex]
+    inspectIndex = inspectIndex + 1
+
+    -- CheckInteractDistance index 1 = Inspect Range (28 yards)
+    if CanInspect(targetUnit) and CheckInteractDistance(targetUnit, 1) then
+        NotifyInspect(targetUnit)
+    end
+end
+
+--- Catches our own NotifyInspects, as well as those from GS/LGT.
+function Cooldowns:OnInspectReady(event)
+    -- In 3.3.5, this event doesn't pass the unit name. We just sweep the 
+    -- roster and update anyone whose cache happens to be valid right now.
+    for unitName, entry in pairs(roster) do
+        if IsInspectCacheValid(entry.unitID) then
+            PruneItemBarsForUnit(unitName, entry.unitID)
+            CheckUnitTrinkets(unitName, entry.unitID)
+        end
+    end
+end
+
+--- Receive inter-addon communication from our own addon and others (oRA3, BLT, etc.)
+function Cooldowns:OnCommReceived(prefix, message, distribution, sender)
+    -- Ignore our own broadcasts
+    if sender == UnitName("player") then return end
+
+    local spellID, playerName, CDLeft, target
+
+    if prefix == "HomeCheck" then
+        -- Our native addon comms
+        local ok, arg1, arg2, arg3, arg4 = self:Deserialize(message)
+        if not ok then return end
+        
+        if arg1 == "TRINKETS" then
+            -- Trinket sync payload: "TRINKETS", playerName, item1, item2
+            local syncPlayerName, t1, t2 = arg2, arg3, arg4
+            if roster[syncPlayerName] then
+                local state = GetOrCreateUnitState(syncPlayerName)
+                local itemData = spellData["ITEMS"]
+                if not itemData then return end
+                
+                -- Prune active "Ready" bars first
+                for canonSpellID, info in pairs(state) do
+                    if info.expTime and info.expTime <= GetTime() and itemTrinketIDs[canonSpellID] then
+                        state[canonSpellID] = nil
+                    end
+                end
+                
+                -- Seed newly broadcasted items
+                local equipped = { t1, t2 }
+                for canonSpellID in pairs(itemData) do
+                    local trinketIDs = itemTrinketIDs[canonSpellID]
+                    if trinketIDs then
+                        for _, eqID in ipairs(equipped) do
+                            for _, knownID in ipairs(trinketIDs) do
+                                if eqID == knownID then
+                                    SeedItemSpellForUnit(syncPlayerName, canonSpellID)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            return -- Done handling TRINKETS
+        else
+            -- Native cooldown cast payload: spellID, playerName, target
+            spellID, playerName, target = tonumber(arg1), arg2, arg3
+        end
+
+    elseif prefix == "oRA3" then
+        local ok, messageType, sid, cdl, tgt = self:Deserialize(message)
+        if not ok or type(messageType) ~= "string" or messageType ~= "Cooldown" then return end
+        spellID, CDLeft, target = sid, cdl, tgt
+
+    elseif prefix == "BLT" then
+        if not string.find(message, ":") then return end
+        local messageType, payload = strsplit(":", message)
+        if messageType ~= "CD" or not payload or not string.find(payload, ";") then return end
+        local pName, _, sid, tgt = strsplit(";", payload)
+        playerName, spellID, target = pName, sid, tgt
+
+    elseif prefix == "oRA" or prefix == "CTRA" then
+        local sid, cdl = select(3, message:find("CD (%d) (%d+)"))
+        spellID, CDLeft = tonumber(sid), tonumber(cdl)
+        -- oRA 1/2/3/4 legacy mappings
+        if spellID == 1 then spellID = 48477      -- Rebirth
+        elseif spellID == 2 then spellID = 21169  -- Reincarnation
+        elseif spellID == 3 then spellID = 47883  -- Soulstone Resurrection
+        elseif spellID == 4 then spellID = 19752  -- Divine Intervention
+        end
+
+    elseif prefix == "RCD2" then
+        spellID, CDLeft = select(3, message:find("(%d+) (%d+)"))
+
+    elseif prefix == "FRCD3S" then
+        spellID, playerName, CDLeft, target = select(3, message:find("(%d+)(%a+)(%d+)(%a*)"))
+
+    elseif prefix == "FRCD3" then
+        -- This specific addon sends multiple cooldowns at once for the sender
+        playerName = tostring(sender)
+        if not roster[playerName] then return end
+
+        for w in string.gmatch(message, "([^,]*),") do
+            local sid, cdl = select(3, w:find("(%d+)-(%d+)"))
+            ApplySyncedCooldown(playerName, sid, cdl, nil)
+        end
+        return -- Loop handled all updates
+    end
+
+    -- If we didn't extract a spellID from any known prefix, bail out
+    if not spellID then return end
+
+    -- Default fallback: if the payload didn't specify a player, assume it was the sender
+    playerName = playerName and tostring(playerName) or sender
+
+    -- Apply the extracted state
+    ApplySyncedCooldown(playerName, spellID, CDLeft, target)
 end
 
 -- ============================================================
@@ -882,7 +1084,7 @@ end
 -- ============================================================
 
 function Cooldowns:OnInitialize()
-    self.db = LibStub("AceDB-3.0"):New("CooldownsDB", defaults, true)
+    self.db = LibStub("AceDB-3.0"):New("CooldownsDB", defaults, "Global")
 
     -- Bootstrap: create one default group if the profile is brand new.
     if #self.db.profile.groupOrder == 0 then
@@ -924,7 +1126,7 @@ end
 
 function Cooldowns:OnEnable()
     locRebirth = GetSpellInfo(48477)
-
+    self:RegisterEvent("INSPECT_TALENT_READY", "OnInspectReady")
     -- Record which faction-specific Shaman spell should be excluded from
     -- the default enabled set (Bloodlust for Alliance, Heroism for Horde).
     -- We do NOT mutate spellData so the table stays consistent for all callers.
@@ -934,6 +1136,7 @@ function Cooldowns:OnEnable()
     else
         excludedShaman = 2825    -- Bloodlust: not available to Alliance
     end
+    self:ScheduleRepeatingTimer(PoliteInspectTick, 5) -- Actively ping 1 player every 5 seconds to hunt for PUG trinkets
 
     -- Migrate enabledSpells: ensure every spell currently in spellData is
     -- present in each group's enabledSpells table.  This silently adds newly
@@ -951,6 +1154,13 @@ function Cooldowns:OnEnable()
 
     -- Register the HomeCheck comm prefix for inter-addon cooldown sync.
     self:RegisterComm(HOMECHECK_PREFIX, "OnCommReceived")
+    self:RegisterComm("oRA3",           "OnCommReceived")
+    self:RegisterComm("BLT",            "OnCommReceived")
+    self:RegisterComm("oRA",            "OnCommReceived")
+    self:RegisterComm("CTRA",           "OnCommReceived")
+    self:RegisterComm("RCD2",           "OnCommReceived")
+    self:RegisterComm("FRCD3S",         "OnCommReceived")
+    self:RegisterComm("FRCD3",          "OnCommReceived")
 
     self:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED", "OnCLEUF")
     self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED",    "OnUSS")

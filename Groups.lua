@@ -180,6 +180,8 @@ LibFramePool:CreatePool(POOL_KEY, function(parent)
     -- Inline target name: appears between spell text and the timer.
     -- Shown only when targetDisplay == "inline" and a destName is available.
     local destInlineText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local inFont, inSize = destInlineText:GetFont()
+    destInlineText:SetFont(inFont, inSize, "OUTLINE") -- Add outline
     destInlineText:SetPoint("LEFT", timerText, "LEFT", -96, 0)
     destInlineText:SetWidth(92)
     destInlineText:SetJustifyH("LEFT")
@@ -198,8 +200,8 @@ LibFramePool:CreatePool(POOL_KEY, function(parent)
     row.destFloatFrame = floatFrame
 
     local floatText = floatFrame:CreateFontString(nil, "OVERLAY")
-    floatText:SetFont("Fonts\\FRIZQT__.TTF", 11, "")
-    floatText:SetAllPoints(floatFrame)
+    floatText:SetFont("Fonts\\FRIZQT__.TTF", 11, "OUTLINE") -- Add outline
+    floatText:SetPoint("CENTER", floatFrame, "CENTER", 0, 0)
     floatText:SetJustifyH("CENTER")
     floatText:SetJustifyV("MIDDLE")
     floatText:SetWordWrap(false)
@@ -273,7 +275,7 @@ local function UpdateRow(row, data, rowWidth, gConfig)
     end
 
     -- Player name with class colour
-    local cc = classColors[data.className] or { 1, 1, 1 }
+    local cc = classColors[data.classColor] or { 1, 1, 1 }
     row.nameText:SetText(data.srcName)
     row.nameText:SetTextColor(cc[1], cc[2], cc[3])
 
@@ -326,7 +328,7 @@ local function UpdateRow(row, data, rowWidth, gConfig)
         fFrame:SetBackdropColor(bgR, bgG, bgB, bgA)
 
         fText:SetFont("Fonts\\FRIZQT__.TTF",
-            math.max(6, gConfig.targetFontSize or 11), "")
+            math.max(6, gConfig.targetFontSize or 11), "OUTLINE")
         -- Text colour: class colour when enabled, otherwise user-configured.
         local tR, tG, tB, tA
         if gConfig.targetTextColorByClass and data.destClass then
