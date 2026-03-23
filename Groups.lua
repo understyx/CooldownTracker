@@ -65,6 +65,28 @@ local function FormatTimeChat(seconds)
     end
 end
 
+-- Apply chat message template tokens.
+-- Tokens: %playerName %spellName %targetName %timeLeft
+--   %condCD(text) — replaced with "text" when on cooldown, removed when ready.
+local function FormatChatMessage(template, data)
+    local spellName  = Cooldowns:GetSpellChatName(data.spellID)
+    local timeStr    = FormatTimeChat(data.timeLeft)
+    local targetName = data.destName or ""
+    local msg = template
+    msg = msg:gsub("%%playerName", data.srcName)
+    msg = msg:gsub("%%spellName",  spellName)
+    msg = msg:gsub("%%targetName", targetName)
+    msg = msg:gsub("%%timeLeft",   timeStr)
+    if data.timeLeft > 0 then
+        -- on cooldown: replace %condCD(text) with the inner text
+        msg = msg:gsub("%%condCD%((.-)%)", "%1")
+    else
+        -- ready: remove the entire %condCD(...) token
+        msg = msg:gsub("%%condCD%((.-)%)", "")
+    end
+    return msg
+end
+
 -- Colour-coded version used in the on-screen timer column.
 local function FormatTime(seconds)
     if seconds <= 0 then
@@ -178,14 +200,14 @@ LibFramePool:CreatePool(POOL_KEY, function(parent)
         -- Ignore clicks while in layout-edit mode so they don't fight the mover.
         if LibEditmode:IsEditModeActive(addonName) then return end
 
-        local spellName = Cooldowns:GetSpellDisplayName(data.spellID)
+        -- Resolve the group config for this row's parent frame.
+        local gName   = self:GetParent() and self:GetParent()._groupName
+        local gConfig = gName and Cooldowns.db.profile.groups[gName]
 
         if IsShiftKeyDown() then
-            local state = FormatTimeChat(data.timeLeft)
-            local msg   = string.format("[%s] - [%s] - [%s]",
-                data.srcName, spellName, state)
-            -- WotLK 3.3.5 API: GetNumRaidMembers / GetNumPartyMembers.
-            -- IsInRaid and GetNumGroupMembers were added in 5.0.4+.
+            local tmpl = (gConfig and gConfig.shiftClickTemplate)
+                      or "[%playerName] - [%spellName] - [%timeLeft]"
+            local msg = FormatChatMessage(tmpl, data)
             local channel
             if GetNumRaidMembers() > 0 then
                 channel = "RAID"
@@ -198,8 +220,10 @@ LibFramePool:CreatePool(POOL_KEY, function(parent)
         elseif IsAltKeyDown() then
             -- Only whisper when the spell is actually ready.
             if data.timeLeft <= 0 then
-                SendChatMessage("Please use " .. spellName .. " on me",
-                    "WHISPER", nil, data.srcName)
+                local tmpl = (gConfig and gConfig.altClickTemplate)
+                          or "Please use %spellName on me"
+                local msg = FormatChatMessage(tmpl, data)
+                SendChatMessage(msg, "WHISPER", nil, data.srcName)
             end
         end
     end)
@@ -252,6 +276,10 @@ local function UpdateRow(row, data, rowWidth, gConfig)
         local dc = classColors[data.destClass] or { 1, 1, 1 }
         row.destInlineText:SetText("-> " .. data.destName)
         row.destInlineText:SetTextColor(dc[1], dc[2], dc[3])
+        -- Reposition with configurable X offset (default -96 from timer right).
+        local inlineOffX = gConfig and (gConfig.targetInlineOffsetX or 0) or 0
+        row.destInlineText:ClearAllPoints()
+        row.destInlineText:SetPoint("LEFT", row.timerText, "LEFT", -96 + inlineOffX, 0)
         row.destInlineText:Show()
     else
         row.destInlineText:Hide()
@@ -267,10 +295,18 @@ local function UpdateRow(row, data, rowWidth, gConfig)
         local bgH  = math.max(8,  gConfig.targetBgHeight or 16)
         fFrame:SetSize(bgW, bgH)
 
-        local bgR = gConfig.targetBgR or 0
-        local bgG = gConfig.targetBgG or 0
-        local bgB = gConfig.targetBgB or 0
-        local bgA = gConfig.targetBgA or 0.75
+        -- Background colour: class colour when enabled, otherwise user-configured.
+        local bgR, bgG, bgB, bgA
+        if gConfig.targetBgColorByClass and data.destClass then
+            local dc = classColors[data.destClass] or { 0, 0, 0 }
+            bgR, bgG, bgB = dc[1], dc[2], dc[3]
+            bgA = gConfig.targetBgA or 0.75
+        else
+            bgR = gConfig.targetBgR or 0
+            bgG = gConfig.targetBgG or 0
+            bgB = gConfig.targetBgB or 0
+            bgA = gConfig.targetBgA or 0.75
+        end
         fFrame:SetBackdropColor(bgR, bgG, bgB, bgA)
 
         fText:SetFont("Fonts\\FRIZQT__.TTF",
@@ -289,10 +325,11 @@ local function UpdateRow(row, data, rowWidth, gConfig)
         fText:SetTextColor(tR, tG, tB, tA)
         fText:SetText(data.destName)
 
-        -- Position: centred vertically in the row, sitting just left of the
-        -- timer text so it never overlaps it.
+        -- Position: sitting just left of the timer text with configurable offsets.
+        local floatOffX = gConfig.targetFloatOffsetX or 0
+        local floatOffY = gConfig.targetFloatOffsetY or 0
         fFrame:ClearAllPoints()
-        fFrame:SetPoint("RIGHT", row.timerText, "LEFT", -4, 0)
+        fFrame:SetPoint("RIGHT", row.timerText, "LEFT", -4 + floatOffX, floatOffY)
 
         fFrame:Show()
     else

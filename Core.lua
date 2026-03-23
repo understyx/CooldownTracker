@@ -501,11 +501,13 @@ function Cooldowns:OnRosterUpdate()
 end
 
 --- Fires when the local player's inventory changes (e.g. equipping a trinket).
---- Re-scans trinket slots so newly-equipped items immediately get a bar.
+--- Re-scans trinket slots so newly-equipped items immediately get a bar, and
+--- prunes any bars whose trinket was just removed.
 function Cooldowns:OnUnitInventoryChanged(event, unitID)
     if not unitID or not UnitIsUnit(unitID, "player") then return end
     local unitName = UnitName("player")
     if unitName and roster[unitName] then
+        PruneItemBarsForUnit(unitName, unitID)
         CheckUnitTrinkets(unitName, unitID)
     end
 end
@@ -553,7 +555,8 @@ function Cooldowns:OnTalentUpdate(event, guid)
         if entry.guid == guid then
             ReseedAfterTalentChange(unitName, entry.class, entry.unitID)
             -- LGT just finished inspecting this player; the inspect cache is
-            -- still valid here, so check their trinket slots for tracked items.
+            -- still valid here, so prune stale trinket bars then re-seed.
+            PruneItemBarsForUnit(unitName, entry.unitID)
             CheckUnitTrinkets(unitName, entry.unitID)
             return
         end
@@ -654,6 +657,11 @@ function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilter
                             end
                         end
                         local className = roster[unitName] and roster[unitName].class or ""
+                        local isItem    = spellData["ITEMS"] and spellData["ITEMS"][spellID] ~= nil
+                        -- Item spells are placed in their own group at the bottom by
+                        -- pretending their className is "~~ITEMS" (sorts after all real
+                        -- class names because "~" > "Z" in ASCII).
+                        if isItem then className = "~~ITEMS" end
                         -- Resolve the target's class for colour coding.
                         -- Check roster first (target is usually in the same group),
                         -- then fall back to nil (displays in white).
@@ -671,6 +679,7 @@ function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilter
                             destClass = destClass,
                             icon      = spellIconCache[spellID],
                             className = className,
+                            isItem    = isItem,
                         })
                     end
                 end
@@ -704,6 +713,18 @@ function Cooldowns:GetSpellDisplayName(spellID)
         spellNameCache[spellID] = GetSpellInfo(spellID) or ("Spell " .. spellID)
     end
     return spellNameCache[spellID]
+end
+
+--- Returns a chat-ready name for a spell.
+--- For tracked trinkets this is the item link (e.g. [Goblin Turbo-Trike Key]);
+--- for all other spells this falls back to the localized spell name.
+function Cooldowns:GetSpellChatName(spellID)
+    local trinketIDs = itemTrinketIDs[spellID]
+    if trinketIDs then
+        local link = select(2, GetItemInfo(trinketIDs[1]))
+        if link then return link end
+    end
+    return self:GetSpellDisplayName(spellID)
 end
 
 -- ============================================================
@@ -790,6 +811,8 @@ function Cooldowns:CreateGroup(name)
         spellRoleFilter   = {},
         -- Target display ("none" / "inline" / "float").
         targetDisplay         = "none",
+        -- Inline target label offset.
+        targetInlineOffsetX   = 0,
         -- Floating target badge appearance.
         targetFontSize        = 11,
         targetTextColorByClass = false,
@@ -797,12 +820,20 @@ function Cooldowns:CreateGroup(name)
         targetTextG           = 1.0,
         targetTextB           = 1.0,
         targetTextA           = 1.0,
+        targetBgColorByClass  = false,
         targetBgR             = 0.0,
         targetBgG             = 0.0,
         targetBgB             = 0.0,
         targetBgA             = 0.75,
         targetBgWidth         = 90,
         targetBgHeight        = 16,
+        targetFloatOffsetX    = 0,
+        targetFloatOffsetY    = 0,
+        -- Chat message templates.
+        -- Supported tokens: %playerName %spellName %targetName %timeLeft
+        --   %condCD(text)  — "text" printed only when spell is on cooldown.
+        shiftClickTemplate    = "[%playerName] - [%spellName] - [%timeLeft]",
+        altClickTemplate      = "Please use %spellName on me",
     }
     tinsert(self.db.profile.groupOrder, name)
     if ns.CreateGroupFrame then
@@ -868,18 +899,24 @@ function Cooldowns:OnInitialize()
             spellRoleFilter   = {},
             -- Target display defaults.
             targetDisplay         = "none",
+            targetInlineOffsetX   = 0,
             targetFontSize        = 11,
             targetTextColorByClass = false,
             targetTextR           = 1.0,
             targetTextG           = 1.0,
             targetTextB           = 1.0,
             targetTextA           = 1.0,
+            targetBgColorByClass  = false,
             targetBgR             = 0.0,
             targetBgG             = 0.0,
             targetBgB             = 0.0,
             targetBgA             = 0.75,
             targetBgWidth         = 90,
             targetBgHeight        = 16,
+            targetFloatOffsetX    = 0,
+            targetFloatOffsetY    = 0,
+            shiftClickTemplate    = "[%playerName] - [%spellName] - [%timeLeft]",
+            altClickTemplate      = "Please use %spellName on me",
         }
         tinsert(self.db.profile.groupOrder, groupName)
     end
@@ -937,6 +974,10 @@ function Cooldowns:OnEnable()
 
     self:RegisterChatCommand("cooldowns", "OpenConfig")
     self:RegisterChatCommand("cd",        "OpenConfig")
+
+    -- Periodically prune/re-seed trinket bars in case remote players swap items
+    -- between LibGroupTalents inspect cycles.
+    self:ScheduleRepeatingTimer(RecheckAllTrinkets, 30)
 
     -- Initialise the group display frames (defined in Groups.lua).
     if ns.InitGroups then ns.InitGroups() end
