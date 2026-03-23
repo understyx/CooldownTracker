@@ -264,6 +264,51 @@ local function CheckUnitTrinkets(unitName, unitID)
     end
 end
 
+--- Remove item-spell bars for trinkets the unit no longer has equipped.
+--- Only removes bars in the "Ready" state (expTime ≤ now); active cooldowns
+--- are kept because we know with certainty the player had the item at cast time.
+local function PruneItemBarsForUnit(unitName, unitID)
+    local state = cdState[unitName]
+    if not state then return end
+    local itemData = spellData["ITEMS"]
+    if not itemData then return end
+    local now = GetTime()
+    for canonSpellID in pairs(itemData) do
+        local info = state[canonSpellID]
+        if info and info.expTime and info.expTime <= now then
+            local trinketIDs = itemTrinketIDs[canonSpellID]
+            if trinketIDs then
+                local stillEquipped = false
+                for _, slot in ipairs({ TRINKET_SLOT_1, TRINKET_SLOT_2 }) do
+                    local equipped = GetInventoryItemID(unitID, slot)
+                    if equipped then
+                        for _, knownID in ipairs(trinketIDs) do
+                            if equipped == knownID then
+                                stillEquipped = true
+                                break
+                            end
+                        end
+                    end
+                    if stillEquipped then break end
+                end
+                if not stillEquipped then
+                    state[canonSpellID] = nil
+                end
+            end
+        end
+    end
+end
+
+--- Periodically prune and re-seed tracked trinket bars for every player in the
+--- roster.  Handles the case where a remote player swapped trinkets between
+--- LibGroupTalents inspect cycles.
+local function RecheckAllTrinkets()
+    for unitName, entry in pairs(roster) do
+        PruneItemBarsForUnit(unitName, entry.unitID)
+        CheckUnitTrinkets(unitName, entry.unitID)
+    end
+end
+
 --- Called when LibGroupTalents confirms (or changes) a unit's talent data.
 --- Wipes all talent-required spell entries for the unit then re-seeds them
 --- using the now-known talent state.  Non-talent spells are untouched.
