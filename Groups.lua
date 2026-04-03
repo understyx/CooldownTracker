@@ -161,10 +161,11 @@ LibFramePool:CreatePool(POOL_KEY, function(parent)
     nameText:SetWordWrap(false)
     row.nameText = nameText
 
-    -- Spell name
+    -- Spell name (and inline target when that mode is active).
+    -- The RIGHT anchor is set after timerText is created so the text
+    -- automatically fills the space between the player name and the timer.
     local spellText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     spellText:SetPoint("LEFT", nameText, "RIGHT", 3, 0)
-    spellText:SetWidth(80)
     spellText:SetJustifyH("LEFT")
     spellText:SetWordWrap(false)
     spellText:SetTextColor(0.85, 0.85, 0.85)
@@ -177,17 +178,8 @@ LibFramePool:CreatePool(POOL_KEY, function(parent)
     timerText:SetJustifyH("RIGHT")
     row.timerText = timerText
 
-    -- Inline target name: appears between spell text and the timer.
-    -- Shown only when targetDisplay == "inline" and a destName is available.
-    local destInlineText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    local inFont, inSize = destInlineText:GetFont()
-    destInlineText:SetFont(inFont, inSize, "OUTLINE") -- Add outline
-    destInlineText:SetPoint("LEFT", timerText, "LEFT", -96, 0)
-    destInlineText:SetWidth(92)
-    destInlineText:SetJustifyH("LEFT")
-    destInlineText:SetWordWrap(false)
-    destInlineText:Hide()
-    row.destInlineText = destInlineText
+    -- Stretch spell text to fill the gap between player name and timer.
+    spellText:SetPoint("RIGHT", timerText, "LEFT", -4, 0)
 
     -- Floating target badge: a small styled frame for "float" mode.
     -- Configurable background colour, text size, and text colour.
@@ -279,28 +271,32 @@ local function UpdateRow(row, data, rowWidth, gConfig)
     row.nameText:SetText(data.srcName)
     row.nameText:SetTextColor(cc[1], cc[2], cc[3])
 
-    -- Spell name: show or hide based on config (default: show).
-    if gConfig and gConfig.showSpellName ~= false then
-        row.spellText:Show()
-        row.spellText:SetText(Cooldowns:GetSpellDisplayName(data.spellID))
-    else
-        row.spellText:Hide()
-    end
-
-    -- ---- Inline target display ----
-    -- Shows "-> TargetName" in the target's class colour between the spell
-    -- text and the timer.  Re-uses the same font as the player name text.
-    if targetMode == "inline" and hasTarget then
-        local dc = classColors[data.destClass] or { 1, 1, 1 }
-        row.destInlineText:SetText("-> " .. data.destName)
-        row.destInlineText:SetTextColor(dc[1], dc[2], dc[3])
-        -- Reposition with configurable X offset (default -96 from timer right).
-        local inlineOffX = gConfig and (gConfig.targetInlineOffsetX or 0) or 0
-        row.destInlineText:ClearAllPoints()
-        row.destInlineText:SetPoint("LEFT", row.timerText, "LEFT", -96 + inlineOffX, 0)
-        row.destInlineText:Show()
-    else
-        row.destInlineText:Hide()
+    -- Spell name, optionally followed by inline target name.
+    -- When targetDisplay == "inline" and a target is known, the target name
+    -- is appended directly to the spell name text in the target's class colour.
+    do
+        local showSpell  = gConfig and gConfig.showSpellName ~= false
+        local showInline = targetMode == "inline" and hasTarget
+        if showSpell or showInline then
+            local nameStr = showSpell
+                and Cooldowns:GetSpellDisplayName(data.spellID)
+                or ""
+            if showInline then
+                local dc  = classColors[data.destClass] or { 1, 1, 1 }
+                local sep = showSpell and " " or ""
+                nameStr = nameStr .. string.format(
+                    "%s|cff%02x%02x%02x-> %s|r",
+                    sep,
+                    math.floor(dc[1] * 255),
+                    math.floor(dc[2] * 255),
+                    math.floor(dc[3] * 255),
+                    data.destName)
+            end
+            row.spellText:SetText(nameStr)
+            row.spellText:Show()
+        else
+            row.spellText:Hide()
+        end
     end
 
     -- ---- Floating target badge ----
@@ -309,8 +305,10 @@ local function UpdateRow(row, data, rowWidth, gConfig)
         local fText  = row.destFloatText
 
         -- Apply configurable appearance.
-        local bgW  = math.max(20, gConfig.targetBgWidth  or 90)
-        local bgH  = math.max(8,  gConfig.targetBgHeight or 16)
+        local bgW = math.max(20, gConfig.targetBgWidth or 90)
+        local bgH = gConfig.targetMatchRowHeight
+            and row:GetHeight()
+            or math.max(8, gConfig.targetBgHeight or 16)
         fFrame:SetSize(bgW, bgH)
 
         -- Background colour: class colour when enabled, otherwise user-configured.
