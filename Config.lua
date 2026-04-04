@@ -89,7 +89,7 @@ local function BuildSpellArgs(groupName)
                         local cfg = Cooldowns.db.profile.groups[groupName]
                         if cfg then
                             cfg.enabledSpells          = cfg.enabledSpells or {}
-                            cfg.enabledSpells[spellID] = val or nil
+                            cfg.enabledSpells[spellID] = val
                         end
                     end,
                 }
@@ -442,7 +442,13 @@ local function BuildGroupArgs(groupName)
             order = 22,
             func  = function()
                 local cfg = Cooldowns.db.profile.groups[groupName]
-                if cfg then cfg.enabledSpells = {} end
+                if not cfg then return end
+                cfg.enabledSpells = cfg.enabledSpells or {}
+                for _, classData in pairs(spellData) do
+                    for spellID in pairs(classData) do
+                        cfg.enabledSpells[spellID] = false
+                    end
+                end
             end,
         },
 
@@ -573,28 +579,6 @@ local function BuildGroupArgs(groupName)
         type  = "header",
         name  = "Target Display",
         order = 50,
-    }
-
-    args.targetInlineOffsetX = {
-        type   = "range",
-        name   = "Inline X Offset",
-        desc   = "Adjust the horizontal position of the inline target text.",
-        order  = 52.5,
-        min    = -200,
-        max    = 200,
-        step   = 1,
-        hidden = function()
-            local cfg = Cooldowns.db.profile.groups[groupName]
-            return not (cfg and cfg.targetDisplay == "inline")
-        end,
-        get    = function()
-            local cfg = Cooldowns.db.profile.groups[groupName]
-            return (cfg and cfg.targetInlineOffsetX) or 0
-        end,
-        set    = function(_, val)
-            local cfg = Cooldowns.db.profile.groups[groupName]
-            if cfg then cfg.targetInlineOffsetX = val end
-        end,
     }
 
     args.targetDisplayDesc = {
@@ -738,6 +722,22 @@ local function BuildGroupArgs(groupName)
         end,
     }
 
+    args.targetMatchRowHeight = {
+        type   = "toggle",
+        name   = "Match row height",
+        desc   = "Set the badge height to match the row height automatically.",
+        order  = 56.7,
+        hidden = hiddenUnlessFloat,
+        get    = function()
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            return cfg and cfg.targetMatchRowHeight or false
+        end,
+        set    = function(_, val)
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            if cfg then cfg.targetMatchRowHeight = val end
+        end,
+    }
+
     args.targetFloatOffsetX = {
         type   = "range",
         name   = "Badge X Offset",
@@ -803,7 +803,11 @@ local function BuildGroupArgs(groupName)
         min    = 8,
         max    = 50,
         step   = 1,
-        hidden = hiddenUnlessFloat,
+        hidden = function()
+            local cfg = Cooldowns.db.profile.groups[groupName]
+            return not (cfg and cfg.targetDisplay == "float")
+                or cfg.targetMatchRowHeight
+        end,
         get    = function()
             local cfg = Cooldowns.db.profile.groups[groupName]
             return (cfg and cfg.targetBgHeight) or 16

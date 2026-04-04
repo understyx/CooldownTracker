@@ -1029,6 +1029,7 @@ function Cooldowns:CreateGroup(name)
         targetBgA             = 0.75,
         targetBgWidth         = 90,
         targetBgHeight        = 16,
+        targetMatchRowHeight  = false,
         targetFloatOffsetX    = 0,
         targetFloatOffsetY    = 0,
         -- Chat message templates.
@@ -1115,6 +1116,7 @@ function Cooldowns:OnInitialize()
             targetBgA             = 0.75,
             targetBgWidth         = 90,
             targetBgHeight        = 16,
+            targetMatchRowHeight  = false,
             targetFloatOffsetX    = 0,
             targetFloatOffsetY    = 0,
             shiftClickTemplate    = "%playerName - %spellLink - %condCD(On Cooldown: )%timeLeft %condTarget(- Last Target: %targetName)",
