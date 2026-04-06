@@ -413,10 +413,13 @@ local function OnGroupUpdate(frame, elapsed)
     local cooldowns = Cooldowns:GetActiveCooldowns(
         gConfig.enabledSpells or {},
         gConfig.roleFilter,
-        gConfig.spellRoleFilter)
+        gConfig.spellRoleFilter,
+        frame._resultBuffer)
 
     -- Filter out "ready" entries when showReady is disabled.
-    local rows = {}
+    -- Reuse the frame's rows buffer to avoid allocating a new table each tick.
+    local rows = frame._rowsBuffer
+    wipe(rows)
     for _, cd in ipairs(cooldowns) do
         if gConfig.showReady or cd.timeLeft > 0 then
             tinsert(rows, cd)
@@ -514,9 +517,11 @@ function ns.CreateGroupFrame(groupName)
     label:SetTextColor(1, 0.82, 0, 1)
     frame.label = label
 
-    frame.activeRows  = {}
-    frame._groupName  = groupName
-    frame._updateTimer = 0
+    frame.activeRows    = {}
+    frame._groupName    = groupName
+    frame._updateTimer  = 0
+    frame._resultBuffer = {}   -- persistent cooldown-entry pool for GetActiveCooldowns
+    frame._rowsBuffer   = {}   -- persistent filter buffer used in OnGroupUpdate
 
     frame:SetScript("OnUpdate", OnGroupUpdate)
 

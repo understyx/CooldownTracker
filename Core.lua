@@ -2,7 +2,7 @@
 -- Main addon backbone: event handling, roster management, cooldown state.
 --
 -- Public API (via ns.Cooldowns):
---   Cooldowns:GetActiveCooldowns(enabledSpells[, roleFilter[, spellRoleFilter]])
+--   Cooldowns:GetActiveCooldowns(enabledSpells[, roleFilter[, spellRoleFilter[, resultBuffer]]])
 --       → sorted list of cooldown entries, grouped by spellID
 --   Cooldowns:GetSpellDisplayName(spellID)  → localized spell name (cached)
 --   ns.OpenConfig()                         → opens the AceConfigDialog
@@ -605,9 +605,20 @@ end
 --- Optional `spellRoleFilter` table: spellRoleFilter[spellID] = { tank=true,
 --- ... }.  When set for a spell, only players whose role appears in the table
 --- have that spell shown.  An absent or empty sub-table means no restriction.
-function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilter)
-    local result = {}
+---
+--- Optional `resultBuffer` table: when supplied, the caller's persistent table
+--- is filled in-place rather than allocating a fresh one.  Each slot is itself
+--- a persistent entry table whose fields are overwritten instead of replaced,
+--- eliminating the per-entry allocation cost that would otherwise occur every
+--- 0.1 s update tick in large raids.  Callers MUST NOT hold references to
+--- individual entries across two consecutive calls (e.g. across update ticks)
+--- because the entries are reused.  Storing a reference on a frame via
+--- row._cdData is safe: UpdateRow overwrites _cdData before the frame update
+--- completes, so any between-tick access sees consistent data.
+function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilter, resultBuffer)
     local now    = GetTime()
+    local result = resultBuffer or {}
+    local count  = 0
 
     -- Pre-compute whether any unit-level role filter is active.
     local hasRoleFilter = false
@@ -690,22 +701,32 @@ function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilter
                             local destEntry = roster[info.destName]
                             destClass = destEntry and destEntry.class
                         end
-                        tinsert(result, {
-                            srcName   = unitName,
-                            spellID   = spellID,
-                            timeLeft  = timeLeft,
-                            dur       = info.dur,
-                            destName  = info.destName,
-                            destClass = destClass,
-                            icon      = spellIconCache[spellID],
-                            className = className,
-                            classColor = roster[unitName] and roster[unitName].class or "",
-                            isItem    = isItem,
-                        })
+                        count = count + 1
+                        -- Reuse the existing entry table at this slot, or create one.
+                        local entry = result[count]
+                        if not entry then
+                            entry = {}
+                            result[count] = entry
+                        end
+                        entry.srcName    = unitName
+                        entry.spellID    = spellID
+                        entry.timeLeft   = timeLeft
+                        entry.dur        = info.dur
+                        entry.destName   = info.destName
+                        entry.destClass  = destClass
+                        entry.icon       = spellIconCache[spellID]
+                        entry.className  = className
+                        entry.classColor = roster[unitName] and roster[unitName].class or ""
+                        entry.isItem     = isItem
                     end
                 end
             end
         end
+    end
+
+    -- Truncate any leftover entries from a previous call with more results.
+    for i = count + 1, #result do
+        result[i] = nil
     end
 
     -- Sort: primary by class, secondary by spellID, then active rows first,
