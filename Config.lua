@@ -148,6 +148,22 @@ end
 -- Build per-group top-level options
 -- ============================================================
 
+local function CheckCircularDependency(groupName, targetGroup)
+    if not targetGroup or targetGroup == "" then return false end
+    if groupName == targetGroup then return true end
+
+    local current = targetGroup
+    local visited = {}
+    while current and current ~= "" do
+        if visited[current] then return true end
+        visited[current] = true
+        if current == groupName then return true end
+        local cfg = Cooldowns.db.profile.groups[current]
+        current = cfg and cfg.attachTo
+    end
+    return false
+end
+
 local function BuildGroupArgs(groupName)
     local gConfig = Cooldowns.db.profile.groups[groupName]
     if not gConfig then return {} end
@@ -261,6 +277,37 @@ local function BuildGroupArgs(groupName)
             set   = function(_, val)
                 local cfg = Cooldowns.db.profile.groups[groupName]
                 if cfg then cfg.showSpellName = val end
+            end,
+        },
+
+        attachTo = {
+            type  = "select",
+            name  = "Attach to",
+            desc  = "Attach this group to the bottom of another group. If the target group is dragged, this group will follow.",
+            order = 3.6,
+            values = function()
+                local groups = { [""] = "None" }
+                for _, name in ipairs(Cooldowns.db.profile.groupOrder) do
+                    if name ~= groupName then
+                        groups[name] = name
+                    end
+                end
+                return groups
+            end,
+            get   = function()
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                return cfg and cfg.attachTo or ""
+            end,
+            set   = function(_, val)
+                if CheckCircularDependency(groupName, val) then
+                    Cooldowns:Print("Cannot attach to '" .. val .. "': circular dependency detected.")
+                    return
+                end
+                local cfg = Cooldowns.db.profile.groups[groupName]
+                if cfg then
+                    cfg.attachTo = (val ~= "") and val or nil
+                    if ns.UpdateAllGroupAnchors then ns.UpdateAllGroupAnchors() end
+                end
             end,
         },
 
