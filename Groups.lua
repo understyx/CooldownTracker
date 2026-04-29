@@ -467,7 +467,45 @@ local function OnGroupUpdate(frame, elapsed)
     end
 
     -- Resize the container to exactly fit its rows plus all inter-group gaps.
-    frame:SetHeight(math.max((showHeader and HEADER_H or 0) + 4, yOffset))
+    local newHeight = math.max((showHeader and HEADER_H or 0) + 4, yOffset)
+    if frame:GetHeight() ~= newHeight then
+        frame:SetHeight(newHeight)
+        if ns.UpdateAllGroupAnchors then ns.UpdateAllGroupAnchors() end
+    end
+end
+
+function ns.ApplyGroupAnchor(groupName)
+    local frame = groupFrames[groupName]
+    if not frame then return end
+
+    local gConfig = Cooldowns.db.profile.groups[groupName]
+    if not gConfig then return end
+
+    frame:ClearAllPoints()
+
+    if gConfig.attachTo and groupFrames[gConfig.attachTo] then
+        -- Attach to the bottom of the target group
+        local targetFrame = groupFrames[gConfig.attachTo]
+        frame:SetPoint("TOPLEFT", targetFrame, "BOTTOMLEFT", 0, -5)
+    else
+        -- Restore saved position
+        if gConfig.anchorPoint then
+            frame:SetPoint(gConfig.anchorPoint, UIParent, gConfig.relPoint or "CENTER",
+                gConfig.x or 0, gConfig.y or 0)
+        else
+            frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        end
+    end
+end
+
+function ns.UpdateAllGroupAnchors()
+    -- Apply anchors in the order they were created or defined to ensure targets exist
+    -- Because dependencies might be complex, we just iterate through groupOrder
+    for _, groupName in ipairs(Cooldowns.db.profile.groupOrder) do
+        if groupFrames[groupName] then
+            ns.ApplyGroupAnchor(groupName)
+        end
+    end
 end
 
 function ns.CreateGroupFrame(groupName)
@@ -486,13 +524,7 @@ function ns.CreateGroupFrame(groupName)
     frame:SetClampedToScreen(true)
     frame:SetFrameStrata("MEDIUM")
 
-    -- Restore saved position (always use CENTER-relative for portability).
-    if gConfig.anchorPoint then
-        frame:SetPoint(gConfig.anchorPoint, UIParent, gConfig.relPoint or "CENTER",
-            gConfig.x or 0, gConfig.y or 0)
-    else
-        frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-    end
+    -- Anchoring is now handled by ns.ApplyGroupAnchor, called later.
 
     -- Backdrop
     frame:SetBackdrop(flatBackdrop)
@@ -540,11 +572,16 @@ function ns.CreateGroupFrame(groupName)
                 cfg.relPoint    = relPoint
                 cfg.x           = x
                 cfg.y           = y
+                if cfg.attachTo then
+                    cfg.attachTo = nil
+                    if ns.UpdateAllGroupAnchors then ns.UpdateAllGroupAnchors() end
+                end
             end
         end,
     })
 
     groupFrames[groupName] = frame
+    ns.ApplyGroupAnchor(groupName)
     return frame
 end
 
@@ -573,6 +610,7 @@ function ns.InitGroups()
             ns.CreateGroupFrame(groupName)
         end
     end
+    ns.UpdateAllGroupAnchors()
 end
 
 --- Update the header label of a group frame (e.g. after rename).

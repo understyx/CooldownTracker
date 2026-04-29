@@ -1076,9 +1076,16 @@ function Cooldowns:DeleteGroup(name)
             break
         end
     end
+    -- Remove this group from any attachTo references
+    for _, grp in pairs(self.db.profile.groups) do
+        if grp.attachTo == name then
+            grp.attachTo = nil
+        end
+    end
     if ns.DestroyGroupFrame then
         ns.DestroyGroupFrame(name)
     end
+    if ns.UpdateAllGroupAnchors then ns.UpdateAllGroupAnchors() end
 end
 
 --- Rename a group (name is also the key — creates a new entry, copies config).
@@ -1096,8 +1103,15 @@ function Cooldowns:RenameGroup(oldName, newName)
             break
         end
     end
+    -- Update any attachTo references that pointed to the old name
+    for _, grp in pairs(self.db.profile.groups) do
+        if grp.attachTo == oldName then
+            grp.attachTo = newName
+        end
+    end
     if ns.DestroyGroupFrame then ns.DestroyGroupFrame(oldName) end
     if ns.CreateGroupFrame  then ns.CreateGroupFrame(newName)  end
+    if ns.UpdateAllGroupAnchors then ns.UpdateAllGroupAnchors() end
     return true
 end
 
