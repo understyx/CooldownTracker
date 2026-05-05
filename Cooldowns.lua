@@ -591,7 +591,6 @@ if event == "OPTIONS" then
                                                                         local function AddUnitInfo(cName, unitID, uName)
                                                                         db.roster[uName] = db.roster[uName] or {}
                                                                         local unitData = db.roster[uName]
-                                                                        unitData = unitData or {}
                                                                         unitData.className = cName
                                                                         unitData.role = CheckUnitRole(unitID)
                                                                         unitData.connected = CheckUnitConnection(unitID)
@@ -608,8 +607,10 @@ if event == "OPTIONS" then
                                                                         local minus = 0
                                                                         if ( not data.minus ) then return minus end
                                                                             for i = 1, #data.minusTabIndex do
-                                                                                local tMinus = GetTalentRankInfo(unitID, data.minusTabIndex[i], data.minusTalentIndex[i]) * data.minusPerPoint[i]
-                                                                                minus = minus + tMinus
+                                                                                local pts = GetTalentRankInfo(unitID, data.minusTabIndex[i], data.minusTalentIndex[i])
+                                                                                if pts and pts > 0 then
+                                                                                    minus = minus + pts * data.minusPerPoint[i]
+                                                                                end
                                                                                 end
                                                                                 return minus
                                                                                 end
