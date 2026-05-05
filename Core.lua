@@ -828,7 +828,7 @@ local function ApplySyncedCooldown(playerName, spellID, CDLeft, target)
 
     target = (target ~= "" and target) or nil
 
-    if CDLeft == nil or CDLeft == true then
+    if CDLeft == nil then
         -- We only received a cast event, treat it as a fresh cast
         RecordCast(playerName, spellID, target)
     else
