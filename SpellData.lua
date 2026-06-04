@@ -1,6 +1,6 @@
 -- SpellData.lua
--- Spell database for the Cooldowns addon.
--- Extracted and adapted from the WeakAuras backend in Cooldowns.lua.
+-- Spell database for the RaidHelper addon.
+-- Extracted and adapted from the WeakAuras backend in RaidHelper.lua.
 --
 -- Fields per spell entry:
 --   dur            (number)  Base cooldown duration in seconds.

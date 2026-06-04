@@ -1,10 +1,10 @@
 -- Core.lua
 -- Main addon backbone: event handling, roster management, cooldown state.
 --
--- Public API (via ns.Cooldowns):
---   Cooldowns:GetActiveCooldowns(enabledSpells[, roleFilter[, spellRoleFilter[, resultBuffer]]])
+-- Public API (via ns.RaidHelper):
+--   RaidHelper:GetActiveCooldowns(enabledSpells[, roleFilter[, spellRoleFilter[, resultBuffer]]])
 --       → sorted list of cooldown entries, grouped by spellID
---   Cooldowns:GetSpellDisplayName(spellID)  → localized spell name (cached)
+--   RaidHelper:GetSpellDisplayName(spellID)  → localized spell name (cached)
 --   ns.OpenConfig()                         → opens the AceConfigDialog
 --
 -- Talent handling strategy:
@@ -18,7 +18,7 @@
 
 local addonName, ns = ...
 
-local Cooldowns = LibStub("AceAddon-3.0"):NewAddon(
+local RaidHelper = LibStub("AceAddon-3.0"):NewAddon(
     addonName,
     "AceConsole-3.0",
     "AceEvent-3.0",
@@ -26,7 +26,7 @@ local Cooldowns = LibStub("AceAddon-3.0"):NewAddon(
     "AceComm-3.0",
     "AceSerializer-3.0"
 )
-ns.Cooldowns = Cooldowns
+ns.RaidHelper = RaidHelper
 
 -- ============================================================
 -- Locals
@@ -391,7 +391,7 @@ local function RefreshRoster()
     -- freshly-seeded cdState entries (only for units now confirmed in the roster).
     if not cdStateRestored then
         cdStateRestored = true
-        local db = Cooldowns.db.global.cdStateDB
+        local db = RaidHelper.db.global.cdStateDB
         if db then
             local now     = GetTime()
             local wallNow = time()
@@ -424,7 +424,7 @@ local function RefreshRoster()
             end
         end
     end
-    Cooldowns:BroadcastTrinkets()
+    RaidHelper:BroadcastTrinkets()
 end
 
 -- ============================================================
@@ -434,7 +434,7 @@ end
 -- COMBAT_LOG_EVENT_UNFILTERED (WoTLK 3.3.5 payload):
 --   timestamp, subevent, sourceGUID, sourceName, sourceFlags,
 --   destGUID, destName, destFlags, spellID, spellName, spellSchool, ...
-function Cooldowns:OnCLEUF(event,
+function RaidHelper:OnCLEUF(event,
         timestamp, subEvent,
         sourceGUID, srcName, sourceFlags,
         destGUID,   destName, destFlags,
@@ -503,7 +503,7 @@ end
 
 -- UNIT_SPELLCAST_SUCCEEDED fires for Rebirth (48477) to avoid relying on
 -- CLEU which triggers before the target is actually rezzed.
-function Cooldowns:OnUSS(event, unitID, spellName)
+function RaidHelper:OnUSS(event, unitID, spellName)
     if spellName == locRebirth then
         local unitName = GetUnitName(unitID)
         if unitName and roster[unitName] then
@@ -513,14 +513,14 @@ function Cooldowns:OnUSS(event, unitID, spellName)
     end
 end
 
-function Cooldowns:OnRosterUpdate()
+function RaidHelper:OnRosterUpdate()
     self:ScheduleTimer(RefreshRoster, 0.5)
 end
 
 --- Fires when the local player's inventory changes (e.g. equipping a trinket).
 --- Re-scans trinket slots so newly-equipped items immediately get a bar, and
 --- prunes any bars whose trinket was just removed.
-function Cooldowns:OnUnitInventoryChanged(event, unitID)
+function RaidHelper:OnUnitInventoryChanged(event, unitID)
     if not unitID or not UnitIsUnit(unitID, "player") then return end
     local unitName = UnitName("player")
     if unitName and roster[unitName] then
@@ -532,7 +532,7 @@ function Cooldowns:OnUnitInventoryChanged(event, unitID)
     end
 end
 
-function Cooldowns:OnPlayerEnteringWorld()
+function RaidHelper:OnPlayerEnteringWorld()
     self:ScheduleTimer(RefreshRoster, 1)
 end
 
@@ -540,7 +540,7 @@ end
 --- expireAt is stored as a Unix timestamp (time()) to survive GetTime() resetting.
 --- Only active (not yet expired) cooldowns are saved; ready spells are re-seeded
 --- at expTime = 0 automatically and need no persistence.
-function Cooldowns:OnPlayerLogout()
+function RaidHelper:OnPlayerLogout()
     local now     = GetTime()
     local wallNow = time()
     local saved   = {}
@@ -569,7 +569,7 @@ end
 --- (initial inspection) or when it changes (respec / dual-spec swap).
 --- We use it to seed talent-required spells that were deliberately skipped
 --- until the talent state was confirmed.
-function Cooldowns:OnTalentUpdate(event, guid)
+function RaidHelper:OnTalentUpdate(event, guid)
     -- Find the roster entry that matches this GUID.
     for unitName, entry in pairs(roster) do
         if entry.guid == guid then
@@ -615,7 +615,7 @@ end
 --- because the entries are reused.  Storing a reference on a frame via
 --- row._cdData is safe: UpdateRow overwrites _cdData before the frame update
 --- completes, so any between-tick access sees consistent data.
-function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilter, resultBuffer)
+function RaidHelper:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilter, resultBuffer)
     local now    = GetTime()
     local result = resultBuffer or {}
     local count  = 0
@@ -750,7 +750,7 @@ function Cooldowns:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilter
 end
 
 --- Cached localized spell name.
-function Cooldowns:GetSpellDisplayName(spellID)
+function RaidHelper:GetSpellDisplayName(spellID)
     if not spellNameCache[spellID] then
         spellNameCache[spellID] = GetSpellInfo(spellID) or ("Spell " .. spellID)
     end
@@ -760,7 +760,7 @@ end
 --- Returns a chat-ready name for a spell.
 --- For tracked trinkets this is the item link (e.g. [Goblin Turbo-Trike Key]);
 --- for all other spells this falls back to the localized spell name.
-function Cooldowns:GetSpellChatName(spellID)
+function RaidHelper:GetSpellChatName(spellID)
     local trinketIDs = itemTrinketIDs[spellID]
     if trinketIDs then
         local link = select(2, GetItemInfo(trinketIDs[1]))
@@ -777,7 +777,7 @@ end
 local HOMECHECK_PREFIX = "HomeCheck"
 
 
-function Cooldowns:BroadcastTrinkets()
+function RaidHelper:BroadcastTrinkets()
     local channel
     if GetNumRaidMembers() > 0 then
         channel = "RAID"
@@ -797,7 +797,7 @@ end
 
 --- Broadcast a detected cooldown to the raid using the HomeCheck protocol.
 --- Only fires when in a group; silently does nothing in solo play.
-function Cooldowns:BroadcastCooldown(spellID, playerName, target)
+function RaidHelper:BroadcastCooldown(spellID, playerName, target)
     local channel
     if GetNumRaidMembers() > 0 then
         channel = "RAID"
@@ -886,7 +886,7 @@ local function PoliteInspectTick()
 end
 
 --- Catches our own NotifyInspects, as well as those from GS/LGT.
-function Cooldowns:OnInspectReady(event)
+function RaidHelper:OnInspectReady(event)
     -- In 3.3.5, this event doesn't pass the unit name. We just sweep the 
     -- roster and update anyone whose cache happens to be valid right now.
     for unitName, entry in pairs(roster) do
@@ -898,7 +898,7 @@ function Cooldowns:OnInspectReady(event)
 end
 
 --- Receive inter-addon communication from our own addon and others (oRA3, BLT, etc.)
-function Cooldowns:OnCommReceived(prefix, message, distribution, sender)
+function RaidHelper:OnCommReceived(prefix, message, distribution, sender)
     -- Ignore our own broadcasts
     if sender == UnitName("player") then return end
 
@@ -1002,7 +1002,7 @@ end
 --- Build the default enabledSpells table (all spells enabled).
 --- The opposing faction's Shaman lust spell is excluded when the faction
 --- is known (i.e. after OnEnable has run).
-function Cooldowns:AllSpellsEnabled()
+function RaidHelper:AllSpellsEnabled()
     local t = {}
     for _, classData in pairs(spellData) do
         for spellID in pairs(classData) do
@@ -1016,7 +1016,7 @@ end
 
 --- Create a new group with the given name.
 --- Returns false if a group with that name already exists.
-function Cooldowns:CreateGroup(name)
+function RaidHelper:CreateGroup(name)
     if self.db.profile.groups[name] then return false end
     self.db.profile.groups[name] = {
         name              = name,
@@ -1067,7 +1067,7 @@ function Cooldowns:CreateGroup(name)
 end
 
 --- Delete an existing group.
-function Cooldowns:DeleteGroup(name)
+function RaidHelper:DeleteGroup(name)
     if not self.db.profile.groups[name] then return end
     self.db.profile.groups[name] = nil
     for i, v in ipairs(self.db.profile.groupOrder) do
@@ -1089,7 +1089,7 @@ function Cooldowns:DeleteGroup(name)
 end
 
 --- Rename a group (name is also the key — creates a new entry, copies config).
-function Cooldowns:RenameGroup(oldName, newName)
+function RaidHelper:RenameGroup(oldName, newName)
     if oldName == newName then return true end
     if self.db.profile.groups[newName] then return false end
     local cfg = self.db.profile.groups[oldName]
@@ -1119,12 +1119,12 @@ end
 -- Lifecycle
 -- ============================================================
 
-function Cooldowns:OnInitialize()
-    self.db = LibStub("AceDB-3.0"):New("CooldownsDB", defaults, "Global")
+function RaidHelper:OnInitialize()
+    self.db = LibStub("AceDB-3.0"):New("RaidHelperDB", defaults, "Global")
 
     -- Bootstrap: create one default group if the profile is brand new.
     if #self.db.profile.groupOrder == 0 then
-        local groupName = "Raid Cooldowns"
+        local groupName = "Raid RaidHelper"
         self.db.profile.groups[groupName] = {
             name              = groupName,
             showReady         = true,
@@ -1161,7 +1161,7 @@ function Cooldowns:OnInitialize()
     end
 end
 
-function Cooldowns:OnEnable()
+function RaidHelper:OnEnable()
     locRebirth = GetSpellInfo(48477)
     self:RegisterEvent("INSPECT_TALENT_READY", "OnInspectReady")
     -- Record which faction-specific Shaman spell should be excluded from
@@ -1216,7 +1216,7 @@ function Cooldowns:OnEnable()
     -- Subscribe to LibGroupTalents talent-received / respec events so we can
     -- seed talent-required spell bars once each player's talents are confirmed.
     if LGT then
-        LGT.RegisterCallback(Cooldowns, "LibGroupTalents_Update", "OnTalentUpdate")
+        LGT.RegisterCallback(RaidHelper, "LibGroupTalents_Update", "OnTalentUpdate")
     end
 
     self:RegisterChatCommand("cooldowns", "OpenConfig")
@@ -1233,7 +1233,7 @@ function Cooldowns:OnEnable()
     RefreshRoster()
 end
 
-function Cooldowns:OpenConfig()
+function RaidHelper:OpenConfig()
     if ns.OpenConfigDialog then
         ns.OpenConfigDialog()
     end
