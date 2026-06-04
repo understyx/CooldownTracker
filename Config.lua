@@ -988,9 +988,17 @@ local function BuildOptions()
     end
 
     return {
-        type  = "group",
-        name  = "RaidHelper",
-        args  = args,
+        type        = "group",
+        name        = "RaidHelper",
+        childGroups = "tab",
+        args        = {
+            groups = {
+                type  = "group",
+                name  = "Groups",
+                order = 1,
+                args  = args,
+            },
+        },
     }
 end
 
