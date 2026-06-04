@@ -10,4 +10,5 @@ SpellData.lua
 Skin.lua
 Core.lua
 Groups.lua
+Notification.lua
 Config.lua

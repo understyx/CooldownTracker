@@ -918,6 +918,82 @@ local function BuildGroupArgs(groupName)
 end
 
 -- ============================================================
+-- Notification tab options
+-- ============================================================
+
+local function BuildNotificationArgs()
+    return {
+        enabled = {
+            type  = "toggle",
+            name  = "Enable notification",
+            desc  = "Show an on-screen overlay when another player requests a cooldown from you.",
+            order = 1,
+            width = "full",
+            get   = function()
+                return RaidHelper.db.profile.notification.enabled
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.notification.enabled = val
+            end,
+        },
+
+        durationHeader = {
+            type  = "header",
+            name  = "Display",
+            order = 10,
+        },
+
+        duration = {
+            type    = "range",
+            name    = "Display duration",
+            desc    = "How many seconds the notification remains on screen.",
+            order   = 11,
+            min     = 1,
+            max     = 30,
+            step    = 1,
+            get     = function()
+                return RaidHelper.db.profile.notification.duration
+            end,
+            set     = function(_, val)
+                RaidHelper.db.profile.notification.duration = val
+            end,
+        },
+
+        fontSize = {
+            type    = "range",
+            name    = "Font size",
+            desc    = "Size of the notification text.",
+            order   = 12,
+            min     = 8,
+            max     = 48,
+            step    = 1,
+            get     = function()
+                return RaidHelper.db.profile.notification.fontSize
+            end,
+            set     = function(_, val)
+                RaidHelper.db.profile.notification.fontSize = val
+            end,
+        },
+
+        positionHeader = {
+            type  = "header",
+            name  = "Position",
+            order = 20,
+        },
+
+        editModeButton = {
+            type  = "execute",
+            name  = "Toggle edit mode",
+            desc  = "Enter / exit frame-positioning mode to drag the notification to the desired screen location.",
+            order = 21,
+            func  = function()
+                ns.ToggleEditMode()
+            end,
+        },
+    }
+end
+
+-- ============================================================
 -- Root options table (built dynamically)
 -- ============================================================
 
@@ -997,6 +1073,12 @@ local function BuildOptions()
                 name  = "Groups",
                 order = 1,
                 args  = args,
+            },
+            notification = {
+                type  = "group",
+                name  = "Cooldown Notification",
+                order = 2,
+                args  = BuildNotificationArgs(),
             },
         },
     }

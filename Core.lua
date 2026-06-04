@@ -66,6 +66,16 @@ local defaults = {
         -- groups[name] = { name, showReady, iconSize, width, enabledSpells={[spellID]=bool} }
         -- showReady defaults to true so bars are visible from the start (ready state).
         groups     = {},
+        -- Cooldown-request notification overlay settings.
+        notification = {
+            enabled     = true,
+            duration    = 5,      -- seconds the overlay remains visible
+            fontSize    = 22,     -- font size for the notification text
+            anchorPoint = "CENTER",
+            relPoint    = "CENTER",
+            x           = 0,
+            y           = 100,
+        },
     },
 }
 
@@ -775,6 +785,7 @@ end
 
 -- Comm channel prefix used by HomeCheck for addon-to-addon messaging.
 local HOMECHECK_PREFIX = "HomeCheck"
+ns.HOMECHECK_PREFIX = HOMECHECK_PREFIX
 
 
 function RaidHelper:BroadcastTrinkets()
@@ -940,6 +951,14 @@ function RaidHelper:OnCommReceived(prefix, message, distribution, sender)
                 end
             end
             return -- Done handling TRINKETS
+        elseif arg1 == "REQUEST" then
+            -- Cooldown request payload: "REQUEST", spellID
+            -- Another player is asking us (the local player) to use a specific spell.
+            local sid = tonumber(arg2)
+            if sid and ns.ShowCooldownNotification then
+                ns.ShowCooldownNotification(sender, sid)
+            end
+            return -- Done handling REQUEST
         else
             -- Native cooldown cast payload: spellID, playerName, target
             spellID, playerName, target = tonumber(arg1), arg2, arg3
@@ -1228,6 +1247,9 @@ function RaidHelper:OnEnable()
 
     -- Initialise the group display frames (defined in Groups.lua).
     if ns.InitGroups then ns.InitGroups() end
+
+    -- Initialise the cooldown notification overlay (defined in Notification.lua).
+    if ns.InitNotification then ns.InitNotification() end
 
     -- Seed the roster with whoever is already in the group.
     RefreshRoster()

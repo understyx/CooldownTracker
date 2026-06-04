@@ -234,6 +234,12 @@ LibFramePool:CreatePool(POOL_KEY, function(parent)
                           or "Please use %spellName on me"
                 local msg = FormatChatMessage(tmpl, data)
                 SendChatMessage(msg, "WHISPER", nil, data.srcName)
+                -- Also send an addon comm request so the target player's
+                -- RaidHelper can show a notification overlay.
+                RaidHelper:SendCommMessage(
+                    ns.HOMECHECK_PREFIX,
+                    RaidHelper:Serialize("REQUEST", data.spellID),
+                    "WHISPER", data.srcName)
             end
         end
     end)
