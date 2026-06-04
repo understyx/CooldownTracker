@@ -918,6 +918,146 @@ local function BuildGroupArgs(groupName)
 end
 
 -- ============================================================
+-- Buff Check tab options
+-- ============================================================
+
+-- Ordered list of column definitions mirrored from BuffCheck.lua.
+-- Used to build the column-toggle UI without coupling to BUFF_DEFS directly.
+local BUFF_COL_LABELS = {
+    { key = "flask", label = "Flask",           desc = "Any flask buff." },
+    { key = "food",  label = "Food (Well Fed)", desc = "Any food / Well Fed buff." },
+    { key = "fort",  label = "Fort",            desc = "Power Word: Fortitude or Prayer of Fortitude." },
+    { key = "kings", label = "Kings",           desc = "Blessing of Kings or Greater Blessing of Kings." },
+    { key = "motw",  label = "MotW",            desc = "Mark of the Wild or Gift of the Wild." },
+    { key = "ai",    label = "AI",              desc = "Arcane Intellect or Arcane Brilliance." },
+}
+
+local function BuildBuffCheckArgs()
+    local args = {
+        enabled = {
+            type  = "toggle",
+            name  = "Enable buff check window",
+            desc  = "Show a buff status window that opens automatically when a ready check is started.",
+            order = 1,
+            width = "full",
+            get   = function()
+                return RaidHelper.db.profile.buffCheck.enabled ~= false
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.buffCheck.enabled = val
+            end,
+        },
+
+        behaviorHeader = {
+            type  = "header",
+            name  = "Behavior",
+            order = 10,
+        },
+
+        autoShow = {
+            type  = "toggle",
+            name  = "Auto-show on ready check",
+            desc  = "Open the buff check window automatically whenever a ready check is initiated.",
+            order = 11,
+            get   = function()
+                return RaidHelper.db.profile.buffCheck.autoShow ~= false
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.buffCheck.autoShow = val
+            end,
+        },
+
+        autoClose = {
+            type  = "toggle",
+            name  = "Auto-close after ready check",
+            desc  = "Close the window automatically a few seconds after the ready check finishes.",
+            order = 12,
+            get   = function()
+                return RaidHelper.db.profile.buffCheck.autoClose ~= false
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.buffCheck.autoClose = val
+            end,
+        },
+
+        autoCloseDuration = {
+            type  = "range",
+            name  = "Auto-close delay",
+            desc  = "Seconds to wait after the ready check finishes before closing the window.",
+            order = 13,
+            min   = 1,
+            max   = 60,
+            step  = 1,
+            hidden = function()
+                return RaidHelper.db.profile.buffCheck.autoClose == false
+            end,
+            get   = function()
+                return RaidHelper.db.profile.buffCheck.autoCloseDuration or 10
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.buffCheck.autoCloseDuration = val
+            end,
+        },
+
+        openButton = {
+            type  = "execute",
+            name  = "Open buff check window",
+            desc  = "Manually open the buff check window (useful for testing outside a ready check).",
+            order = 14,
+            func  = function()
+                if ns.ShowBuffCheckWindow then ns.ShowBuffCheckWindow() end
+            end,
+        },
+
+        columnsHeader = {
+            type  = "header",
+            name  = "Buff Columns",
+            order = 20,
+        },
+
+        columnsDesc = {
+            type  = "description",
+            name  = "Choose which buff categories are shown as columns in the window. "
+                 .. "Unchecked columns are hidden to save space.",
+            order = 21,
+        },
+    }
+
+    -- One toggle per buff column.
+    for i, col in ipairs(BUFF_COL_LABELS) do
+        local key = col.key
+        args["col_" .. key] = {
+            type  = "toggle",
+            name  = col.label,
+            desc  = col.desc,
+            order = 22 + i,
+            get   = function()
+                local cols = RaidHelper.db.profile.buffCheck.columns
+                return cols and cols[key] ~= false
+            end,
+            set   = function(_, val)
+                local cols = RaidHelper.db.profile.buffCheck.columns
+                if cols then cols[key] = val end
+            end,
+        }
+    end
+
+    args.positionHeader = {
+        type  = "header",
+        name  = "Position",
+        order = 40,
+    }
+
+    args.positionDesc = {
+        type  = "description",
+        name  = "Drag the buff check window to reposition it. The position is saved automatically.",
+        order = 41,
+    }
+
+    return args
+end
+
+-- ============================================================
 -- Notification tab options
 -- ============================================================
 
@@ -1074,10 +1214,16 @@ local function BuildOptions()
                 order = 1,
                 args  = args,
             },
+            buffCheck = {
+                type  = "group",
+                name  = "Buff Check",
+                order = 2,
+                args  = BuildBuffCheckArgs(),
+            },
             notification = {
                 type  = "group",
                 name  = "Cooldown Notification",
-                order = 2,
+                order = 3,
                 args  = BuildNotificationArgs(),
             },
         },

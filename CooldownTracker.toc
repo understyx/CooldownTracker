@@ -11,4 +11,5 @@ Skin.lua
 Core.lua
 Groups.lua
 Notification.lua
+BuffCheck.lua
 Config.lua

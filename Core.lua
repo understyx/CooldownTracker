@@ -76,6 +76,27 @@ local defaults = {
             x           = 0,
             y           = 100,
         },
+        -- Buff check window settings (opens on READY_CHECK).
+        buffCheck = {
+            enabled           = true,   -- enable the whole feature
+            autoShow          = true,   -- open automatically on ready check
+            autoClose         = true,   -- close automatically after the RC finishes
+            autoCloseDuration = 10,     -- seconds to wait before auto-closing
+            -- Column visibility: set to false to hide a column.
+            columns = {
+                flask = true,
+                food  = true,
+                fort  = true,
+                kings = true,
+                motw  = true,
+                ai    = true,
+            },
+            -- Saved position (populated when the user drags the window).
+            anchorPoint = nil,
+            relPoint    = nil,
+            x           = 0,
+            y           = 0,
+        },
     },
 }
 
@@ -1250,6 +1271,9 @@ function RaidHelper:OnEnable()
 
     -- Initialise the cooldown notification overlay (defined in Notification.lua).
     if ns.InitNotification then ns.InitNotification() end
+
+    -- Initialise the buff check window (defined in BuffCheck.lua).
+    if ns.InitBuffCheck then ns.InitBuffCheck() end
 
     -- Seed the roster with whoever is already in the group.
     RefreshRoster()
