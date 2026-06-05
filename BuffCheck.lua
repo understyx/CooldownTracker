@@ -47,15 +47,18 @@ local flatBackdrop = {
 
 -- Each entry defines one column in the buff check window.
 --   key          : unique identifier (matches profile DB key)
---   label        : short column header shown in the UI (≤ 5 chars)
+--   label        : short column header shown in the UI (≤ 6 chars)
 --   spellIDs     : WotLK 3.3.5 buff-aura spell IDs for this category.
 --                  Resolved to localized names via GetSpellInfo at init time.
+--   iconSpellID  : spell ID whose icon texture is displayed in the cell when the
+--                  buff is present (falls back to spellIDs[1] if omitted).
 --   wellFedPattern: if true, also matches any buff whose name contains "Well Fed"
 --                  (handles the many different food-buff spell IDs in WotLK).
 local BUFF_DEFS = {
     {
-        key      = "flask",
-        label    = "Flask",
+        key         = "flask",
+        label       = "Flask",
+        iconSpellID = 57527,   -- Flask of the Frost Wyrm
         spellIDs = {
             57527,  -- Flask of the Frost Wyrm
             57529,  -- Flask of Endless Rage
@@ -76,6 +79,7 @@ local BUFF_DEFS = {
     {
         key            = "food",
         label          = "Food",
+        iconSpellID    = 57399,   -- Fish Feast
         wellFedPattern = true,   -- catch any "Well Fed" buff not in the list below
         spellIDs       = {
             -- Fish Feast (three stat variants)
@@ -91,8 +95,9 @@ local BUFF_DEFS = {
         },
     },
     {
-        key      = "fort",
-        label    = "Fort",
+        key         = "fort",
+        label       = "Stam",
+        iconSpellID = 48162,   -- Prayer of Fortitude Rank 3
         spellIDs = {
             48162,   -- Prayer of Fortitude (Rank 3 — group)
             48161,   -- Power Word: Fortitude (Rank 7 — single)
@@ -102,16 +107,43 @@ local BUFF_DEFS = {
         },
     },
     {
-        key      = "kings",
-        label    = "Kings",
+        key         = "spirit",
+        label       = "Spi",
+        iconSpellID = 48074,   -- Prayer of Spirit Rank 2
+        spellIDs = {
+            48074,   -- Prayer of Spirit (Rank 2 — group, WotLK)
+            27681,   -- Prayer of Spirit (Rank 1)
+            25312,   -- Divine Spirit (Rank 5)
+            27841,   -- Divine Spirit (Rank 4)
+            14819,   -- Divine Spirit (Rank 3)
+            14818,   -- Divine Spirit (Rank 2)
+            14752,   -- Divine Spirit (Rank 1)
+        },
+    },
+    {
+        key         = "ai",
+        label       = "Int",
+        iconSpellID = 42995,   -- Arcane Brilliance Rank 2
+        spellIDs = {
+            42995,   -- Arcane Brilliance (Rank 2 — group)
+            27127,   -- Arcane Intellect (Rank 6 — single)
+            23028,   -- Arcane Brilliance (Rank 1)
+             1459,   -- Arcane Intellect (Rank 1)
+        },
+    },
+    {
+        key         = "kings",
+        label       = "Kings",
+        iconSpellID = 25898,   -- Greater Blessing of Kings
         spellIDs = {
             20217,   -- Blessing of Kings (single)
             25898,   -- Greater Blessing of Kings (group)
         },
     },
     {
-        key      = "motw",
-        label    = "MotW",
+        key         = "motw",
+        label       = "MotW",
+        iconSpellID = 26990,   -- Gift of the Wild Rank 3
         spellIDs = {
             48469,   -- Mark of the Wild (Rank 8)
             26990,   -- Gift of the Wild (Rank 3 — group)
@@ -120,13 +152,35 @@ local BUFF_DEFS = {
         },
     },
     {
-        key      = "ai",
-        label    = "AI",
+        key         = "wisdom",
+        label       = "Wisd",
+        iconSpellID = 48936,   -- Greater Blessing of Wisdom Rank 2
         spellIDs = {
-            42995,   -- Arcane Brilliance (Rank 2 — group)
-            27127,   -- Arcane Intellect (Rank 6 — single)
-            23028,   -- Arcane Brilliance (Rank 1)
-             1459,   -- Arcane Intellect (Rank 1)
+            48936,   -- Greater Blessing of Wisdom (Rank 2 — group, WotLK)
+            48932,   -- Blessing of Wisdom (Rank 6 — single, WotLK)
+            25290,   -- Greater Blessing of Wisdom (Rank 1)
+            27142,   -- Blessing of Wisdom (Rank 5)
+            19853,   -- Blessing of Wisdom (Rank 4)
+            19852,   -- Blessing of Wisdom (Rank 3)
+            19850,   -- Blessing of Wisdom (Rank 2)
+            19742,   -- Blessing of Wisdom (Rank 1)
+        },
+    },
+    {
+        key         = "might",
+        label       = "Might",
+        iconSpellID = 48933,   -- Greater Blessing of Might Rank 2
+        spellIDs = {
+            48933,   -- Greater Blessing of Might (Rank 2 — group, WotLK)
+            48931,   -- Blessing of Might (Rank 8 — single, WotLK)
+            48930,   -- Blessing of Might (Rank 7)
+            25782,   -- Greater Blessing of Might (Rank 1)
+            27140,   -- Blessing of Might (Rank 6)
+            25916,   -- Blessing of Might (Rank 5)
+            25291,   -- Blessing of Might (Rank 4)
+            19835,   -- Blessing of Might (Rank 3)
+            19834,   -- Blessing of Might (Rank 2)
+            19740,   -- Blessing of Might (Rank 1)
         },
     },
 }
@@ -162,6 +216,11 @@ local function BuildBuffNameSets()
             if name then set[name] = true end
         end
         buffNames[def.key] = set
+        -- Resolve the icon texture once at init so UpdateWindow can use it.
+        local iconSID = def.iconSpellID or def.spellIDs[1]
+        if iconSID then
+            def.iconTexture = GetSpellTexture(iconSID)
+        end
     end
 end
 
@@ -197,9 +256,9 @@ end
 -- Ready-check status helpers
 -- ============================================================
 
-local RC_READY    = "|cff22ff22\226\156\147|r"   -- ✓  U+2713
-local RC_NOTREADY = "|cffff3030\226\156\151|r"   -- ✗  U+2717
-local RC_WAITING  = "|cffffd700...|r"
+local RC_READY    = "|TInterface\\RaidFrame\\ReadyCheck-Ready:16:16|t"
+local RC_NOTREADY = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:16:16|t"
+local RC_WAITING  = "|TInterface\\RaidFrame\\ReadyCheck-Waiting:16:16|t"
 
 local function GetRCText(unitID)
     local s = GetReadyCheckStatus(unitID)
@@ -242,17 +301,23 @@ local function CreateRowFrame(parent)
     rcText:SetJustifyH("CENTER")
     row.rcText = rcText
 
-    -- One cell per buff category (visibility driven by enabledCols).
+    -- One icon texture per buff category (visibility driven by enabledCols).
     row.buffCells = {}
     local prev = rcText
     for colIdx = 1, #BUFF_DEFS do
-        local cell = row:CreateFontString(nil, "OVERLAY")
-        cell:SetFont(DEFAULT_FONT, 12, "")
-        cell:SetPoint("LEFT", prev, "RIGHT", 0, 0)
-        cell:SetWidth(BUFF_W)
-        cell:SetJustifyH("CENTER")
-        row.buffCells[colIdx] = cell
-        prev = cell
+        local cellFrame = CreateFrame("Frame", nil, row)
+        cellFrame:SetPoint("LEFT", prev, "RIGHT", 0, 0)
+        cellFrame:SetWidth(BUFF_W)
+        cellFrame:SetHeight(ROW_H)
+
+        local icon = cellFrame:CreateTexture(nil, "OVERLAY")
+        icon:SetSize(16, 16)
+        icon:SetPoint("CENTER", cellFrame, "CENTER", 0, 0)
+        icon:Hide()
+
+        cellFrame.icon = icon
+        row.buffCells[colIdx] = cellFrame
+        prev = cellFrame
     end
 
     return row
@@ -329,14 +394,15 @@ local function UpdateWindow()
         for colIdx, def in ipairs(BUFF_DEFS) do
             local cell = row.buffCells[colIdx]
             if enabledCols[def.key] ~= false then
-                cell:SetText(
-                    found[def.key]
-                    and "|cff22ff22\226\156\147|r"   -- ✓
-                    or  "|cffff3030\226\156\151|r"   -- ✗
-                )
+                if found[def.key] and def.iconTexture then
+                    cell.icon:SetTexture(def.iconTexture)
+                    cell.icon:Show()
+                else
+                    cell.icon:Hide()
+                end
                 cell:Show()
             else
-                cell:SetText("")
+                cell.icon:Hide()
                 cell:Hide()
             end
         end
