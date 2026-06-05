@@ -219,7 +219,7 @@ local function BuildBuffNameSets()
         -- Resolve the icon texture once at init so UpdateWindow can use it.
         local iconSID = def.iconSpellID or def.spellIDs[1]
         if iconSID then
-            def.iconTexture = GetSpellTexture(iconSID)
+            def.iconTexture = select(3, GetSpellInfo(iconSID))
         end
     end
 end
