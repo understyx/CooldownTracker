@@ -183,6 +183,24 @@ local BUFF_DEFS = {
             19740,   -- Blessing of Might (Rank 1)
         },
     },
+    {
+        key         = "stragi",
+        label       = "Str/Agi",
+        iconSpellID = 57623,   -- Horn of Winter Rank 2
+        spellIDs = {
+            57623,   -- Horn of Winter (Rank 2 — WotLK max, Death Knight)
+            57621,   -- Strength of Earth (Rank 7 — WotLK max aura, Shaman)
+        },
+    },
+    {
+        key         = "hp",
+        label       = "HP",
+        iconSpellID = 64380,   -- Commanding Shout (WotLK max)
+        spellIDs = {
+            64380,   -- Commanding Shout (Warrior, WotLK max rank)
+            11767,   -- Blood Pact (Warlock Imp, WotLK max rank)
+        },
+    },
 }
 
 -- Total window width derived from column layout.

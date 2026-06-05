@@ -93,6 +93,8 @@ local defaults = {
                 motw   = true,
                 wisdom = true,
                 might  = true,
+                stragi = true,
+                hp     = true,
             },
             -- Saved position (populated when the user drags the window).
             anchorPoint = nil,
