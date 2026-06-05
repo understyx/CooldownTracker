@@ -1,5 +1,5 @@
 -- Config.lua
--- AceConfig/AceConfigDialog options panel for the Cooldowns addon.
+-- AceConfig/AceConfigDialog options panel for the RaidHelper addon.
 --
 -- Usage in-game:
 --   /cooldowns   or   /cd   → open the options window
@@ -9,7 +9,7 @@
 
 local addonName, ns = ...
 
-local Cooldowns       = ns.Cooldowns
+local RaidHelper       = ns.RaidHelper
 local spellData       = ns.spellData
 local classDisplayNames = ns.classDisplayNames
 local classOrder        = ns.classOrder
@@ -29,7 +29,7 @@ end
 
 -- Derive a short spell description: "SpellName (Ns)"
 local function SpellDesc(spellID, dur)
-    local name = Cooldowns:GetSpellDisplayName(spellID)
+    local name = RaidHelper:GetSpellDisplayName(spellID)
     if dur then
         if dur >= 60 then
             return string.format("%s (%dm)", name, math.floor(dur / 60))
@@ -46,7 +46,7 @@ end
 
 local function BuildSpellArgs(groupName)
     local args    = {}
-    local gConfig = Cooldowns.db.profile.groups[groupName]
+    local gConfig = RaidHelper.db.profile.groups[groupName]
     if not gConfig then return args end
 
     local order = 1
@@ -81,12 +81,12 @@ local function BuildSpellArgs(groupName)
                     name  = SpellDesc(spellID, data.dur),
                     order = order,
                     get   = function()
-                        local cfg = Cooldowns.db.profile.groups[groupName]
+                        local cfg = RaidHelper.db.profile.groups[groupName]
                         return cfg and cfg.enabledSpells
                             and cfg.enabledSpells[spellID] or false
                     end,
                     set   = function(_, val)
-                        local cfg = Cooldowns.db.profile.groups[groupName]
+                        local cfg = RaidHelper.db.profile.groups[groupName]
                         if cfg then
                             cfg.enabledSpells          = cfg.enabledSpells or {}
                             cfg.enabledSpells[spellID] = val
@@ -120,7 +120,7 @@ local function GetSelectedSpellRole(groupName, roleKey)
     if not sel then return false end
     local spellID = tonumber(sel)
     if not spellID then return false end
-    local cfg = Cooldowns.db.profile.groups[groupName]
+    local cfg = RaidHelper.db.profile.groups[groupName]
     return cfg and cfg.spellRoleFilter
         and cfg.spellRoleFilter[spellID]
         and cfg.spellRoleFilter[spellID][roleKey] or false
@@ -131,7 +131,7 @@ local function SetSelectedSpellRole(groupName, roleKey, val)
     if not sel then return end
     local spellID = tonumber(sel)
     if not spellID then return end
-    local cfg = Cooldowns.db.profile.groups[groupName]
+    local cfg = RaidHelper.db.profile.groups[groupName]
     if not cfg then return end
     cfg.spellRoleFilter                   = cfg.spellRoleFilter or {}
     cfg.spellRoleFilter[spellID]          = cfg.spellRoleFilter[spellID] or {}
@@ -158,14 +158,14 @@ local function CheckCircularDependency(groupName, targetGroup)
         if visited[current] then return true end
         visited[current] = true
         if current == groupName then return true end
-        local cfg = Cooldowns.db.profile.groups[current]
+        local cfg = RaidHelper.db.profile.groups[current]
         current = cfg and cfg.attachTo
     end
     return false
 end
 
 local function BuildGroupArgs(groupName)
-    local gConfig = Cooldowns.db.profile.groups[groupName]
+    local gConfig = RaidHelper.db.profile.groups[groupName]
     if not gConfig then return {} end
 
     local args = {
@@ -182,16 +182,16 @@ local function BuildGroupArgs(groupName)
             desc  = "Rename this group (also updates the display header).",
             order = 2,
             get   = function()
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 return cfg and cfg.name or groupName
             end,
             set   = function(_, newName)
                 newName = newName:match("^%s*(.-)%s*$")   -- trim
                 if newName == "" or newName == groupName then return end
-                if Cooldowns:RenameGroup(groupName, newName) then
+                if RaidHelper:RenameGroup(groupName, newName) then
                     NotifyChanged()
                 else
-                    Cooldowns:Print("A group named '" .. newName .. "' already exists.")
+                    RaidHelper:Print("A group named '" .. newName .. "' already exists.")
                 end
             end,
         },
@@ -202,11 +202,11 @@ local function BuildGroupArgs(groupName)
             desc  = "Display rows for cooldowns that are available (not on cooldown).",
             order = 3,
             get   = function()
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 return cfg and cfg.showReady or false
             end,
             set   = function(_, val)
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 if cfg then cfg.showReady = val end
             end,
         },
@@ -223,12 +223,12 @@ local function BuildGroupArgs(groupName)
             desc  = "Show or hide the group name header bar at the top of the frame.",
             order = 3.2,
             get   = function()
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 -- Default true: header is shown unless explicitly disabled.
                 return cfg and cfg.showHeader ~= false
             end,
             set   = function(_, val)
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 if cfg then cfg.showHeader = val end
             end,
         },
@@ -239,11 +239,11 @@ local function BuildGroupArgs(groupName)
             desc  = "Tint the cooldown progress bar with the caster's class colour.",
             order = 3.3,
             get   = function()
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 return cfg and cfg.colorBarByClass or false
             end,
             set   = function(_, val)
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 if cfg then cfg.colorBarByClass = val end
             end,
         },
@@ -254,12 +254,12 @@ local function BuildGroupArgs(groupName)
             desc  = "Show the spell or ability icon on each cooldown row.",
             order = 3.4,
             get   = function()
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 -- Default true: icon is shown unless explicitly disabled.
                 return cfg and cfg.showIcon ~= false
             end,
             set   = function(_, val)
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 if cfg then cfg.showIcon = val end
             end,
         },
@@ -270,12 +270,12 @@ local function BuildGroupArgs(groupName)
             desc  = "Show the spell or ability name on each cooldown row.",
             order = 3.5,
             get   = function()
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 -- Default true: spell name is shown unless explicitly disabled.
                 return cfg and cfg.showSpellName ~= false
             end,
             set   = function(_, val)
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 if cfg then cfg.showSpellName = val end
             end,
         },
@@ -287,7 +287,7 @@ local function BuildGroupArgs(groupName)
             order = 3.6,
             values = function()
                 local groups = { [""] = "None" }
-                for _, name in ipairs(Cooldowns.db.profile.groupOrder) do
+                for _, name in ipairs(RaidHelper.db.profile.groupOrder) do
                     if name ~= groupName then
                         groups[name] = name
                     end
@@ -295,15 +295,15 @@ local function BuildGroupArgs(groupName)
                 return groups
             end,
             get   = function()
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 return cfg and cfg.attachTo or ""
             end,
             set   = function(_, val)
                 if CheckCircularDependency(groupName, val) then
-                    Cooldowns:Print("Cannot attach to '" .. val .. "': circular dependency detected.")
+                    RaidHelper:Print("Cannot attach to '" .. val .. "': circular dependency detected.")
                     return
                 end
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 if cfg then
                     cfg.attachTo = (val ~= "") and val or nil
                     if ns.UpdateAllGroupAnchors then ns.UpdateAllGroupAnchors() end
@@ -320,11 +320,11 @@ local function BuildGroupArgs(groupName)
             max   = 600,
             step  = 10,
             get   = function()
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 return cfg and cfg.width or 260
             end,
             set   = function(_, val)
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 if cfg then
                     cfg.width = val
                     ns.UpdateGroupWidth(groupName)
@@ -341,11 +341,11 @@ local function BuildGroupArgs(groupName)
             max   = 50,
             step  = 1,
             get   = function()
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 return cfg and cfg.rowHeight or 26
             end,
             set   = function(_, val)
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 if cfg then cfg.rowHeight = val end
             end,
         },
@@ -359,11 +359,11 @@ local function BuildGroupArgs(groupName)
             max   = 20,
             step  = 1,
             get   = function()
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 return cfg and cfg.spellGroupSpacing or 4
             end,
             set   = function(_, val)
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 if cfg then cfg.spellGroupSpacing = val end
             end,
         },
@@ -376,7 +376,7 @@ local function BuildGroupArgs(groupName)
             confirm = true,
             confirmText = "Delete group '" .. groupName .. "'?",
             func    = function()
-                Cooldowns:DeleteGroup(groupName)
+                RaidHelper:DeleteGroup(groupName)
                 NotifyChanged()
             end,
         },
@@ -401,11 +401,11 @@ local function BuildGroupArgs(groupName)
             name  = "Tank",
             order = 10,
             get   = function()
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 return cfg and cfg.roleFilter and cfg.roleFilter["tank"] or false
             end,
             set   = function(_, val)
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 if cfg then
                     cfg.roleFilter = cfg.roleFilter or {}
                     cfg.roleFilter["tank"] = val or nil
@@ -418,11 +418,11 @@ local function BuildGroupArgs(groupName)
             name  = "Healer",
             order = 11,
             get   = function()
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 return cfg and cfg.roleFilter and cfg.roleFilter["healer"] or false
             end,
             set   = function(_, val)
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 if cfg then
                     cfg.roleFilter = cfg.roleFilter or {}
                     cfg.roleFilter["healer"] = val or nil
@@ -435,11 +435,11 @@ local function BuildGroupArgs(groupName)
             name  = "Melee",
             order = 12,
             get   = function()
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 return cfg and cfg.roleFilter and cfg.roleFilter["melee"] or false
             end,
             set   = function(_, val)
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 if cfg then
                     cfg.roleFilter = cfg.roleFilter or {}
                     cfg.roleFilter["melee"] = val or nil
@@ -452,11 +452,11 @@ local function BuildGroupArgs(groupName)
             name  = "Caster",
             order = 13,
             get   = function()
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 return cfg and cfg.roleFilter and cfg.roleFilter["caster"] or false
             end,
             set   = function(_, val)
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 if cfg then
                     cfg.roleFilter = cfg.roleFilter or {}
                     cfg.roleFilter["caster"] = val or nil
@@ -476,9 +476,9 @@ local function BuildGroupArgs(groupName)
             name  = "Enable all",
             order = 21,
             func  = function()
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 if cfg then
-                    cfg.enabledSpells = Cooldowns:AllSpellsEnabled()
+                    cfg.enabledSpells = RaidHelper:AllSpellsEnabled()
                 end
             end,
         },
@@ -488,7 +488,7 @@ local function BuildGroupArgs(groupName)
             name  = "Disable all",
             order = 22,
             func  = function()
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 if not cfg then return end
                 cfg.enabledSpells = cfg.enabledSpells or {}
                 for _, classData in pairs(spellData) do
@@ -536,7 +536,7 @@ local function BuildGroupArgs(groupName)
                         local displayClass = classDisplayNames[className] or className
                         for spellID in pairs(classData) do
                             vals[tostring(spellID)] = displayClass .. ": "
-                                .. Cooldowns:GetSpellDisplayName(spellID)
+                                .. RaidHelper:GetSpellDisplayName(spellID)
                         end
                     end
                 end
@@ -581,12 +581,12 @@ local function BuildGroupArgs(groupName)
                 if not sel then return "" end
                 local spellID = tonumber(sel)
                 if not spellID then return "" end
-                local cfg = Cooldowns.db.profile.groups[groupName]
+                local cfg = RaidHelper.db.profile.groups[groupName]
                 local srf = cfg and cfg.spellRoleFilter
                     and cfg.spellRoleFilter[spellID]
                 if not srf then
                     return "|cffffd700"
-                        .. Cooldowns:GetSpellDisplayName(spellID)
+                        .. RaidHelper:GetSpellDisplayName(spellID)
                         .. "|r: shown for all roles."
                 end
                 local roles = {}
@@ -597,11 +597,11 @@ local function BuildGroupArgs(groupName)
                 end
                 if #roles == 0 then
                     return "|cffffd700"
-                        .. Cooldowns:GetSpellDisplayName(spellID)
+                        .. RaidHelper:GetSpellDisplayName(spellID)
                         .. "|r: shown for all roles."
                 end
                 return "|cffffd700"
-                    .. Cooldowns:GetSpellDisplayName(spellID)
+                    .. RaidHelper:GetSpellDisplayName(spellID)
                     .. "|r: shown for " .. table.concat(roles, ", ") .. " only."
             end,
         },
@@ -645,18 +645,18 @@ local function BuildGroupArgs(groupName)
         order  = 52,
         values = { none = "None", inline = "Inline", float = "Float" },
         get    = function()
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             return (cfg and cfg.targetDisplay) or "none"
         end,
         set    = function(_, val)
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             if cfg then cfg.targetDisplay = val end
         end,
     }
 
     -- Float sub-settings — only visible when mode == "float".
     local function hiddenUnlessFloat()
-        local cfg = Cooldowns.db.profile.groups[groupName]
+        local cfg = RaidHelper.db.profile.groups[groupName]
         return not (cfg and cfg.targetDisplay == "float")
     end
 
@@ -677,11 +677,11 @@ local function BuildGroupArgs(groupName)
         step   = 1,
         hidden = hiddenUnlessFloat,
         get    = function()
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             return (cfg and cfg.targetFontSize) or 11
         end,
         set    = function(_, val)
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             if cfg then cfg.targetFontSize = val end
         end,
     }
@@ -694,11 +694,11 @@ local function BuildGroupArgs(groupName)
         order  = 54.5,
         hidden = hiddenUnlessFloat,
         get    = function()
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             return cfg and cfg.targetTextColorByClass or false
         end,
         set    = function(_, val)
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             if cfg then cfg.targetTextColorByClass = val end
         end,
     }
@@ -711,14 +711,14 @@ local function BuildGroupArgs(groupName)
         hasAlpha    = true,
         hidden      = hiddenUnlessFloat,
         get         = function()
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             return (cfg and cfg.targetTextR) or 1,
                    (cfg and cfg.targetTextG) or 1,
                    (cfg and cfg.targetTextB) or 1,
                    (cfg and cfg.targetTextA) or 1
         end,
         set         = function(_, r, g, b, a)
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             if cfg then
                 cfg.targetTextR = r
                 cfg.targetTextG = g
@@ -736,14 +736,14 @@ local function BuildGroupArgs(groupName)
         hasAlpha    = true,
         hidden      = hiddenUnlessFloat,
         get         = function()
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             return (cfg and cfg.targetBgR) or 0,
                    (cfg and cfg.targetBgG) or 0,
                    (cfg and cfg.targetBgB) or 0,
                    (cfg and cfg.targetBgA) or 0.75
         end,
         set         = function(_, r, g, b, a)
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             if cfg then
                 cfg.targetBgR = r
                 cfg.targetBgG = g
@@ -760,11 +760,11 @@ local function BuildGroupArgs(groupName)
         order  = 56.5,
         hidden = hiddenUnlessFloat,
         get    = function()
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             return cfg and cfg.targetBgColorByClass or false
         end,
         set    = function(_, val)
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             if cfg then cfg.targetBgColorByClass = val end
         end,
     }
@@ -776,11 +776,11 @@ local function BuildGroupArgs(groupName)
         order  = 56.7,
         hidden = hiddenUnlessFloat,
         get    = function()
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             return cfg and cfg.targetMatchRowHeight or false
         end,
         set    = function(_, val)
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             if cfg then cfg.targetMatchRowHeight = val end
         end,
     }
@@ -795,11 +795,11 @@ local function BuildGroupArgs(groupName)
         step   = 1,
         hidden = hiddenUnlessFloat,
         get    = function()
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             return (cfg and cfg.targetFloatOffsetX) or 0
         end,
         set    = function(_, val)
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             if cfg then cfg.targetFloatOffsetX = val end
         end,
     }
@@ -814,11 +814,11 @@ local function BuildGroupArgs(groupName)
         step   = 1,
         hidden = hiddenUnlessFloat,
         get    = function()
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             return (cfg and cfg.targetFloatOffsetY) or 0
         end,
         set    = function(_, val)
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             if cfg then cfg.targetFloatOffsetY = val end
         end,
     }
@@ -833,11 +833,11 @@ local function BuildGroupArgs(groupName)
         step   = 2,
         hidden = hiddenUnlessFloat,
         get    = function()
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             return (cfg and cfg.targetBgWidth) or 90
         end,
         set    = function(_, val)
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             if cfg then cfg.targetBgWidth = val end
         end,
     }
@@ -851,16 +851,16 @@ local function BuildGroupArgs(groupName)
         max    = 50,
         step   = 1,
         hidden = function()
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             return not (cfg and cfg.targetDisplay == "float")
                 or cfg.targetMatchRowHeight
         end,
         get    = function()
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             return (cfg and cfg.targetBgHeight) or 16
         end,
         set    = function(_, val)
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             if cfg then cfg.targetBgHeight = val end
         end,
     }
@@ -889,11 +889,11 @@ local function BuildGroupArgs(groupName)
         order = 72,
         width = "full",
         get   = function()
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             return cfg and cfg.shiftClickTemplate or "%playerName - %spellLink - %condCD(On Cooldown: )%timeLeft %condTarget(- Last Target: %targetName)"
         end,
         set   = function(_, val)
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             if cfg then cfg.shiftClickTemplate = val end
         end,
     }
@@ -905,16 +905,232 @@ local function BuildGroupArgs(groupName)
         order = 73,
         width = "full",
         get   = function()
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             return cfg and cfg.altClickTemplate or "Please use %spellName on me"
         end,
         set   = function(_, val)
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             if cfg then cfg.altClickTemplate = val end
         end,
     }
 
     return args
+end
+
+-- ============================================================
+-- Buff Check tab options
+-- ============================================================
+
+-- Ordered list of column definitions mirrored from BuffCheck.lua.
+-- Used to build the column-toggle UI without coupling to BUFF_DEFS directly.
+local BUFF_COL_LABELS = {
+    { key = "flask", label = "Flask",           desc = "Any flask buff." },
+    { key = "food",  label = "Food (Well Fed)", desc = "Any food / Well Fed buff." },
+    { key = "fort",  label = "Fort",            desc = "Power Word: Fortitude or Prayer of Fortitude." },
+    { key = "kings", label = "Kings",           desc = "Blessing of Kings or Greater Blessing of Kings." },
+    { key = "motw",  label = "MotW",            desc = "Mark of the Wild or Gift of the Wild." },
+    { key = "ai",    label = "AI",              desc = "Arcane Intellect or Arcane Brilliance." },
+}
+
+local function BuildBuffCheckArgs()
+    local args = {
+        enabled = {
+            type  = "toggle",
+            name  = "Enable buff check window",
+            desc  = "Show a buff status window that opens automatically when a ready check is started.",
+            order = 1,
+            width = "full",
+            get   = function()
+                return RaidHelper.db.profile.buffCheck.enabled ~= false
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.buffCheck.enabled = val
+            end,
+        },
+
+        behaviorHeader = {
+            type  = "header",
+            name  = "Behavior",
+            order = 10,
+        },
+
+        autoShow = {
+            type  = "toggle",
+            name  = "Auto-show on ready check",
+            desc  = "Open the buff check window automatically whenever a ready check is initiated.",
+            order = 11,
+            get   = function()
+                return RaidHelper.db.profile.buffCheck.autoShow ~= false
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.buffCheck.autoShow = val
+            end,
+        },
+
+        autoClose = {
+            type  = "toggle",
+            name  = "Auto-close after ready check",
+            desc  = "Close the window automatically a few seconds after the ready check finishes.",
+            order = 12,
+            get   = function()
+                return RaidHelper.db.profile.buffCheck.autoClose ~= false
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.buffCheck.autoClose = val
+            end,
+        },
+
+        autoCloseDuration = {
+            type  = "range",
+            name  = "Auto-close delay",
+            desc  = "Seconds to wait after the ready check finishes before closing the window.",
+            order = 13,
+            min   = 1,
+            max   = 60,
+            step  = 1,
+            hidden = function()
+                return RaidHelper.db.profile.buffCheck.autoClose == false
+            end,
+            get   = function()
+                return RaidHelper.db.profile.buffCheck.autoCloseDuration or 10
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.buffCheck.autoCloseDuration = val
+            end,
+        },
+
+        openButton = {
+            type  = "execute",
+            name  = "Open buff check window",
+            desc  = "Manually open the buff check window (useful for testing outside a ready check).",
+            order = 14,
+            func  = function()
+                if ns.ShowBuffCheckWindow then ns.ShowBuffCheckWindow() end
+            end,
+        },
+
+        columnsHeader = {
+            type  = "header",
+            name  = "Buff Columns",
+            order = 20,
+        },
+
+        columnsDesc = {
+            type  = "description",
+            name  = "Choose which buff categories are shown as columns in the window. "
+                 .. "Unchecked columns are hidden to save space.",
+            order = 21,
+        },
+    }
+
+    -- One toggle per buff column.
+    for i, col in ipairs(BUFF_COL_LABELS) do
+        local key = col.key
+        args["col_" .. key] = {
+            type  = "toggle",
+            name  = col.label,
+            desc  = col.desc,
+            order = 22 + i,
+            get   = function()
+                local cols = RaidHelper.db.profile.buffCheck.columns
+                return cols and cols[key] ~= false
+            end,
+            set   = function(_, val)
+                local cols = RaidHelper.db.profile.buffCheck.columns
+                if cols then cols[key] = val end
+            end,
+        }
+    end
+
+    args.positionHeader = {
+        type  = "header",
+        name  = "Position",
+        order = 40,
+    }
+
+    args.positionDesc = {
+        type  = "description",
+        name  = "Drag the buff check window to reposition it. The position is saved automatically.",
+        order = 41,
+    }
+
+    return args
+end
+
+-- ============================================================
+-- Notification tab options
+-- ============================================================
+
+local function BuildNotificationArgs()
+    return {
+        enabled = {
+            type  = "toggle",
+            name  = "Enable notification",
+            desc  = "Show an on-screen overlay when another player requests a cooldown from you.",
+            order = 1,
+            width = "full",
+            get   = function()
+                return RaidHelper.db.profile.notification.enabled
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.notification.enabled = val
+            end,
+        },
+
+        durationHeader = {
+            type  = "header",
+            name  = "Display",
+            order = 10,
+        },
+
+        duration = {
+            type    = "range",
+            name    = "Display duration",
+            desc    = "How many seconds the notification remains on screen.",
+            order   = 11,
+            min     = 1,
+            max     = 30,
+            step    = 1,
+            get     = function()
+                return RaidHelper.db.profile.notification.duration
+            end,
+            set     = function(_, val)
+                RaidHelper.db.profile.notification.duration = val
+            end,
+        },
+
+        fontSize = {
+            type    = "range",
+            name    = "Font size",
+            desc    = "Size of the notification text.",
+            order   = 12,
+            min     = 8,
+            max     = 48,
+            step    = 1,
+            get     = function()
+                return RaidHelper.db.profile.notification.fontSize
+            end,
+            set     = function(_, val)
+                RaidHelper.db.profile.notification.fontSize = val
+            end,
+        },
+
+        positionHeader = {
+            type  = "header",
+            name  = "Position",
+            order = 20,
+        },
+
+        editModeButton = {
+            type  = "execute",
+            name  = "Toggle edit mode",
+            desc  = "Enter / exit frame-positioning mode to drag the notification to the desired screen location.",
+            order = 21,
+            func  = function()
+                ns.ToggleEditMode()
+            end,
+        },
+    }
 end
 
 -- ============================================================
@@ -943,14 +1159,14 @@ local function BuildOptions()
             func  = function()
                 local name = newGroupName:match("^%s*(.-)%s*$")
                 if name == "" then
-                    Cooldowns:Print("Please enter a group name first.")
+                    RaidHelper:Print("Please enter a group name first.")
                     return
                 end
-                if Cooldowns:CreateGroup(name) then
+                if RaidHelper:CreateGroup(name) then
                     newGroupName = ""
                     NotifyChanged()
                 else
-                    Cooldowns:Print("A group named '" .. name .. "' already exists.")
+                    RaidHelper:Print("A group named '" .. name .. "' already exists.")
                 end
             end,
         },
@@ -975,8 +1191,8 @@ local function BuildOptions()
 
     -- One sub-group entry per configured group.
     local order = 11
-    for _, groupName in ipairs(Cooldowns.db.profile.groupOrder) do
-        if Cooldowns.db.profile.groups[groupName] then
+    for _, groupName in ipairs(RaidHelper.db.profile.groupOrder) do
+        if RaidHelper.db.profile.groups[groupName] then
             args["group_" .. groupName] = {
                 type  = "group",
                 name  = groupName,
@@ -988,9 +1204,29 @@ local function BuildOptions()
     end
 
     return {
-        type  = "group",
-        name  = "Cooldowns",
-        args  = args,
+        type        = "group",
+        name        = "RaidHelper",
+        childGroups = "tab",
+        args        = {
+            groups = {
+                type  = "group",
+                name  = "Groups",
+                order = 1,
+                args  = args,
+            },
+            buffCheck = {
+                type  = "group",
+                name  = "Buff Check",
+                order = 2,
+                args  = BuildBuffCheckArgs(),
+            },
+            notification = {
+                type  = "group",
+                name  = "Cooldown Notification",
+                order = 3,
+                args  = BuildNotificationArgs(),
+            },
+        },
     }
 end
 
@@ -1008,7 +1244,7 @@ local function EnsureRegistered()
     -- Register with AceConfig using a function so the tree is rebuilt each
     -- time the dialog calls back to retrieve options.
     AceConfig:RegisterOptionsTable(addonName, BuildOptions)
-    AceConfigDialog:AddToBlizOptions(addonName, "Cooldowns")
+    AceConfigDialog:AddToBlizOptions(addonName, "RaidHelper")
 end
 
 --- Opens the floating AceConfigDialog for this addon.

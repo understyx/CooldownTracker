@@ -14,9 +14,9 @@
 
 local addonName, ns = ...
 
--- Core.lua is listed before Groups.lua in the .toc file, so ns.Cooldowns is
+-- Core.lua is listed before Groups.lua in the .toc file, so ns.RaidHelper is
 -- guaranteed to be set by the time this file executes at load time.
-local Cooldowns    = ns.Cooldowns
+local RaidHelper    = ns.RaidHelper
 local LibFramePool = LibStub("LibFramePool-1.0")
 local LibEditmode  = LibStub("LibEditmode-1.0")
 local classColors  = ns.classColors
@@ -25,7 +25,7 @@ local classColors  = ns.classColors
 -- Constants / layout metrics
 -- ============================================================
 
-local POOL_KEY     = "Cooldowns_Row"
+local POOL_KEY     = "RaidHelper_Row"
 local HEADER_H     = 22     -- header strip height (px)
 local DEFAULT_ROW_H = 26    -- fallback row height when not configured
 local ROW_PAD      = 1      -- vertical gap between rows
@@ -69,12 +69,12 @@ end
 -- Tokens: %playerName %spellName %targetName %timeLeft
 --   %condCD(text) — replaced with "text" when on cooldown, removed when ready.
 local function FormatChatMessage(template, data)
-    local spellName  = Cooldowns:GetSpellChatName(data.spellID)
+    local spellName  = RaidHelper:GetSpellChatName(data.spellID)
     local timeStr    = FormatTimeChat(data.timeLeft)
     local spellLink
     if data.isItem then
         -- Core.lua already handles looking up the item link for trinkets
-        spellLink = Cooldowns:GetSpellChatName(data.spellID)
+        spellLink = RaidHelper:GetSpellChatName(data.spellID)
     else
         -- WoW API generates the clickable spell link
         spellLink = GetSpellLink(data.spellID) or spellName
@@ -212,7 +212,7 @@ LibFramePool:CreatePool(POOL_KEY, function(parent)
 
         -- Resolve the group config for this row's parent frame.
         local gName   = self:GetParent() and self:GetParent()._groupName
-        local gConfig = gName and Cooldowns.db.profile.groups[gName]
+        local gConfig = gName and RaidHelper.db.profile.groups[gName]
 
         if IsShiftKeyDown() then
             local tmpl = (gConfig and gConfig.shiftClickTemplate)
@@ -234,6 +234,12 @@ LibFramePool:CreatePool(POOL_KEY, function(parent)
                           or "Please use %spellName on me"
                 local msg = FormatChatMessage(tmpl, data)
                 SendChatMessage(msg, "WHISPER", nil, data.srcName)
+                -- Also send an addon comm request so the target player's
+                -- RaidHelper can show a notification overlay.
+                RaidHelper:SendCommMessage(
+                    ns.HOMECHECK_PREFIX,
+                    RaidHelper:Serialize("REQUEST", data.spellID),
+                    "WHISPER", data.srcName)
             end
         end
     end)
@@ -279,7 +285,7 @@ local function UpdateRow(row, data, rowWidth, gConfig)
         local showInline = targetMode == "inline" and hasTarget
         if showSpell or showInline then
             local nameStr = showSpell
-                and Cooldowns:GetSpellDisplayName(data.spellID)
+                and RaidHelper:GetSpellDisplayName(data.spellID)
                 or ""
             if showInline then
                 local dc  = classColors[data.destClass] or { 1, 1, 1 }
@@ -391,7 +397,7 @@ local function OnGroupUpdate(frame, elapsed)
     frame._updateTimer = 0
 
     local gName   = frame._groupName
-    local gConfig = Cooldowns.db.profile.groups[gName]
+    local gConfig = RaidHelper.db.profile.groups[gName]
     if not gConfig then return end
 
     -- Show / hide the group header based on config (default: show).
@@ -410,7 +416,7 @@ local function OnGroupUpdate(frame, elapsed)
     local spellGroupSpacing = math.max(0, gConfig.spellGroupSpacing or 4)
 
     local frameW   = frame:GetWidth()
-    local cooldowns = Cooldowns:GetActiveCooldowns(
+    local cooldowns = RaidHelper:GetActiveCooldowns(
         gConfig.enabledSpells or {},
         gConfig.roleFilter,
         gConfig.spellRoleFilter,
@@ -478,7 +484,7 @@ function ns.ApplyGroupAnchor(groupName)
     local frame = groupFrames[groupName]
     if not frame then return end
 
-    local gConfig = Cooldowns.db.profile.groups[groupName]
+    local gConfig = RaidHelper.db.profile.groups[groupName]
     if not gConfig then return end
 
     frame:ClearAllPoints()
@@ -501,7 +507,7 @@ end
 function ns.UpdateAllGroupAnchors()
     -- Apply anchors in the order they were created or defined to ensure targets exist
     -- Because dependencies might be complex, we just iterate through groupOrder
-    for _, groupName in ipairs(Cooldowns.db.profile.groupOrder) do
+    for _, groupName in ipairs(RaidHelper.db.profile.groupOrder) do
         if groupFrames[groupName] then
             ns.ApplyGroupAnchor(groupName)
         end
@@ -511,13 +517,13 @@ end
 function ns.CreateGroupFrame(groupName)
     if groupFrames[groupName] then return groupFrames[groupName] end
 
-    local gConfig = Cooldowns.db.profile.groups[groupName]
+    local gConfig = RaidHelper.db.profile.groups[groupName]
     if not gConfig then return end
 
     local w = math.max(MIN_W, gConfig.width or DEFAULT_W)
 
     local frame = CreateFrame("Frame",
-        "CooldownsGroup_" .. groupName:gsub("%s", "_"),
+        "RaidHelperGroup_" .. groupName:gsub("%s", "_"),
         UIParent)
     frame:SetWidth(w)
     frame:SetHeight(HEADER_H + 4)
@@ -561,12 +567,12 @@ function ns.CreateGroupFrame(groupName)
     -- addonName scopes the edit-mode toggle to only our frames; syncSize
     -- ensures the drag-handle overlay is sized to match the group frame.
     LibEditmode:Register(frame, {
-        label     = "Cooldowns: " .. groupName,
+        label     = "RaidHelper: " .. groupName,
         addonName = addonName,
         syncSize  = true,
         onMove    = function(point, _relTo, relPoint, x, y)
             -- Save the new position into the profile DB.
-            local cfg = Cooldowns.db.profile.groups[groupName]
+            local cfg = RaidHelper.db.profile.groups[groupName]
             if cfg then
                 cfg.anchorPoint = point
                 cfg.relPoint    = relPoint
@@ -605,8 +611,8 @@ end
 
 --- Initialise display frames for every group in the saved profile.
 function ns.InitGroups()
-    for _, groupName in ipairs(Cooldowns.db.profile.groupOrder) do
-        if Cooldowns.db.profile.groups[groupName] then
+    for _, groupName in ipairs(RaidHelper.db.profile.groupOrder) do
+        if RaidHelper.db.profile.groups[groupName] then
             ns.CreateGroupFrame(groupName)
         end
     end
@@ -625,7 +631,7 @@ end
 function ns.UpdateGroupWidth(groupName)
     local frame = groupFrames[groupName]
     if not frame then return end
-    local cfg = Cooldowns.db.profile.groups[groupName]
+    local cfg = RaidHelper.db.profile.groups[groupName]
     if not cfg then return end
     local w = math.max(MIN_W, cfg.width or DEFAULT_W)
     frame:SetWidth(w)
@@ -634,7 +640,7 @@ function ns.UpdateGroupWidth(groupName)
     end
 end
 
---- Toggle layout-edit mode for all Cooldowns group frames.
+--- Toggle layout-edit mode for all RaidHelper group frames.
 function ns.ToggleEditMode()
     LibEditmode:ToggleEditMode(addonName)
 end
