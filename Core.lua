@@ -982,7 +982,8 @@ function RaidHelper:OnCommReceived(prefix, message, distribution, sender)
             -- Another player is asking us (the local player) to use a specific spell.
             local sid = tonumber(arg2)
             if sid and ns.ShowCooldownNotification then
-                ns.ShowCooldownNotification(sender, sid)
+                local senderClass = roster[sender] and roster[sender].class or ""
+                ns.ShowCooldownNotification(sender, sid, senderClass)
             end
             return -- Done handling REQUEST
         else

@@ -4,12 +4,13 @@
 --
 -- Public API exposed on ns:
 --   ns.InitNotification()                          — call once after DB is ready
---   ns.ShowCooldownNotification(sender, spellID)   — display the notification
+--   ns.ShowCooldownNotification(sender, spellID, senderClass) — display the notification
 
 local addonName, ns = ...
 
 local RaidHelper  = ns.RaidHelper
 local LibEditmode = LibStub("LibEditmode-1.0")
+local classColors = ns.classColors
 
 -- ============================================================
 -- Constants
@@ -93,9 +94,10 @@ end
 -- ============================================================
 
 --- Display a cooldown-request notification.
---- @param sender    string  — name of the player who sent the request
---- @param spellID   number  — spell being requested
-function ns.ShowCooldownNotification(sender, spellID)
+--- @param sender      string  — name of the player who sent the request
+--- @param spellID     number  — spell being requested
+--- @param senderClass string  — class token of the sender (e.g. "MAGE"), may be ""
+function ns.ShowCooldownNotification(sender, spellID, senderClass)
     local cfg = RaidHelper.db.profile.notification
     if not cfg or not cfg.enabled then return end
     if not notifFrame then return end
@@ -107,12 +109,32 @@ function ns.ShowCooldownNotification(sender, spellID)
     end
 
     -- Refresh font size (the user may have changed it in Config).
-    notifFrame.text:SetFont(DEFAULT_FONT, cfg.fontSize or 22, "OUTLINE")
+    local fontSize = cfg.fontSize or 22
+    notifFrame.text:SetFont(DEFAULT_FONT, fontSize, "OUTLINE")
 
-    -- Build display text.
+    -- Line 1: sender name, coloured by class.
+    local cc = classColors and classColors[senderClass]
+    local playerLine
+    if cc then
+        playerLine = string.format("|cff%02x%02x%02x%s|r",
+            cc[1] * 255, cc[2] * 255, cc[3] * 255, sender)
+    else
+        playerLine = sender
+    end
+
+    -- Line 3: spell icon + spell name.
     local spellName = RaidHelper:GetSpellDisplayName(spellID)
                    or ("Spell " .. tostring(spellID))
-    notifFrame.text:SetText(sender .. "\nrequests " .. spellName .. "!")
+    local iconTex   = select(3, GetSpellInfo(spellID))
+    local spellLine
+    if iconTex then
+        spellLine = string.format("|T%s:%d:%d|t %s", iconTex, fontSize, fontSize, spellName)
+    else
+        spellLine = spellName
+    end
+
+    -- Build the 3-row message.
+    notifFrame.text:SetText(playerLine .. "\nRequesting\n" .. spellLine)
 
     -- Resize frame to fit the text.
     local tw = notifFrame.text:GetStringWidth()  + NOTIF_PAD_X
