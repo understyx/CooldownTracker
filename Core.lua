@@ -84,12 +84,15 @@ local defaults = {
             autoCloseDuration = 10,     -- seconds to wait before auto-closing
             -- Column visibility: set to false to hide a column.
             columns = {
-                flask = true,
-                food  = true,
-                fort  = true,
-                kings = true,
-                motw  = true,
-                ai    = true,
+                flask  = true,
+                food   = true,
+                fort   = true,
+                spirit = true,
+                ai     = true,
+                kings  = true,
+                motw   = true,
+                wisdom = true,
+                might  = true,
             },
             -- Saved position (populated when the user drags the window).
             anchorPoint = nil,

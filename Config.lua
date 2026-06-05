@@ -924,12 +924,15 @@ end
 -- Ordered list of column definitions mirrored from BuffCheck.lua.
 -- Used to build the column-toggle UI without coupling to BUFF_DEFS directly.
 local BUFF_COL_LABELS = {
-    { key = "flask", label = "Flask",           desc = "Any flask buff." },
-    { key = "food",  label = "Food (Well Fed)", desc = "Any food / Well Fed buff." },
-    { key = "fort",  label = "Fort",            desc = "Power Word: Fortitude or Prayer of Fortitude." },
-    { key = "kings", label = "Kings",           desc = "Blessing of Kings or Greater Blessing of Kings." },
-    { key = "motw",  label = "MotW",            desc = "Mark of the Wild or Gift of the Wild." },
-    { key = "ai",    label = "AI",              desc = "Arcane Intellect or Arcane Brilliance." },
+    { key = "flask",  label = "Flask",           desc = "Any flask buff." },
+    { key = "food",   label = "Food (Well Fed)", desc = "Any food / Well Fed buff." },
+    { key = "fort",   label = "Stamina",         desc = "Power Word: Fortitude or Prayer of Fortitude." },
+    { key = "spirit", label = "Spirit",          desc = "Divine Spirit or Prayer of Spirit." },
+    { key = "ai",     label = "Intellect",       desc = "Arcane Intellect or Arcane Brilliance." },
+    { key = "kings",  label = "Kings",           desc = "Blessing of Kings or Greater Blessing of Kings." },
+    { key = "motw",   label = "MotW",            desc = "Mark of the Wild or Gift of the Wild." },
+    { key = "wisdom", label = "Wisdom",          desc = "Blessing of Wisdom or Greater Blessing of Wisdom." },
+    { key = "might",  label = "Might",           desc = "Blessing of Might or Greater Blessing of Might." },
 }
 
 local function BuildBuffCheckArgs()
