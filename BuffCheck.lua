@@ -184,39 +184,21 @@ local BUFF_DEFS = {
         },
     },
     {
-        key         = "ap",
-        label       = "AP",
+        key         = "stragi",
+        label       = "Str/Agi",
         iconSpellID = 57623,   -- Horn of Winter Rank 2
         spellIDs = {
             57623,   -- Horn of Winter (Rank 2 — WotLK max, Death Knight)
-            57330,   -- Horn of Winter (Rank 1)
-             2048,   -- Battle Shout (Rank 8 — WotLK max, Warrior)
-            25289,   -- Battle Shout (Rank 7)
-            11551,   -- Battle Shout (Rank 6)
-            11550,   -- Battle Shout (Rank 5)
-            11549,   -- Battle Shout (Rank 4)
-             6192,   -- Battle Shout (Rank 3)
-             5242,   -- Battle Shout (Rank 2)
-             6673,   -- Battle Shout (Rank 1)
+            57621,   -- Strength of Earth (Rank 7 — WotLK max aura, Shaman)
         },
     },
     {
         key         = "hp",
         label       = "HP",
-        iconSpellID = 469,     -- Commanding Shout
+        iconSpellID = 64380,   -- Commanding Shout (WotLK max)
         spellIDs = {
-            64380,   -- Commanding Shout (Rank 7 — WotLK max, Warrior)
-            25202,   -- Commanding Shout (Rank 6)
-            11556,   -- Commanding Shout (Rank 5)
-            11555,   -- Commanding Shout (Rank 4)
-            11554,   -- Commanding Shout (Rank 3)
-             6190,   -- Commanding Shout (Rank 2)
-              469,   -- Commanding Shout (Rank 1)
-            11767,   -- Blood Pact (Rank 5 — Warlock Imp, WotLK max)
-            11766,   -- Blood Pact (Rank 4)
-             7805,   -- Blood Pact (Rank 3)
-             7804,   -- Blood Pact (Rank 2)
-             6307,   -- Blood Pact (Rank 1)
+            64380,   -- Commanding Shout (Warrior, WotLK max rank)
+            11767,   -- Blood Pact (Warlock Imp, WotLK max rank)
         },
     },
 }

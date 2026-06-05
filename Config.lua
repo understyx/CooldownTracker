@@ -932,8 +932,8 @@ local BUFF_COL_LABELS = {
     { key = "kings",  label = "Kings",           desc = "Blessing of Kings or Greater Blessing of Kings." },
     { key = "motw",   label = "MotW",            desc = "Mark of the Wild or Gift of the Wild." },
     { key = "wisdom", label = "Wisdom",          desc = "Blessing of Wisdom or Greater Blessing of Wisdom." },
-    { key = "might",  label = "Might",      desc = "Blessing of Might or Greater Blessing of Might." },
-    { key = "ap",     label = "Att. Power", desc = "Horn of Winter (Death Knight) or Battle Shout (Warrior)." },
+    { key = "might",  label = "Might",    desc = "Blessing of Might or Greater Blessing of Might (attack power)." },
+    { key = "stragi", label = "Str/Agi",  desc = "Horn of Winter (Death Knight) or Strength of Earth Totem (Shaman)." },
     { key = "hp",     label = "Max Health", desc = "Commanding Shout (Warrior) or Blood Pact (Warlock Imp)." },
 }
 
