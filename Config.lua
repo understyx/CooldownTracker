@@ -1139,6 +1139,291 @@ local function BuildNotificationArgs()
 end
 
 -- ============================================================
+-- ElvUI Integration tab options
+-- ============================================================
+
+local function BuildElvUISpellArgs()
+    local args = {}
+    local order = 1
+
+    for _, className in ipairs(classOrder) do
+        local classData = spellData[className]
+        if classData then
+            -- Class heading
+            args["heading_" .. className] = {
+                type  = "header",
+                name  = ns.classDisplayNames[className] or className,
+                order = order,
+            }
+            order = order + 1
+
+            -- Collect spells sorted by their index field.
+            local spellList = {}
+            for spellID, data in pairs(classData) do
+                tinsert(spellList, { id = spellID, data = data })
+            end
+            table.sort(spellList, function(a, b)
+                return (a.data.index or 0) < (b.data.index or 0)
+            end)
+
+            for _, entry in ipairs(spellList) do
+                local spellID = entry.id
+                local data    = entry.data
+                local key     = "spell_elvui_" .. className .. "_" .. spellID
+
+                args[key] = {
+                    type  = "toggle",
+                    name  = SpellDesc(spellID, data.dur),
+                    order = order,
+                    get   = function()
+                        local elv = RaidHelper.db.profile.elvui
+                        return elv and elv.enabledSpells
+                            and elv.enabledSpells[spellID] or false
+                    end,
+                    set   = function(_, val)
+                        local elv = RaidHelper.db.profile.elvui
+                        if elv then
+                            elv.enabledSpells          = elv.enabledSpells or {}
+                            elv.enabledSpells[spellID] = val
+                        end
+                    end,
+                }
+                order = order + 1
+            end
+        end
+    end
+
+    return args
+end
+
+local function BuildElvUIArgs()
+    return {
+        enabled = {
+            type  = "toggle",
+            name  = "Enable ElvUI integration",
+            desc  = "Display cooldown icons directly on ElvUI party and raid unit frames.",
+            order = 1,
+            width = "full",
+            get   = function()
+                return RaidHelper.db.profile.elvui.enabled
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.elvui.enabled = val
+            end,
+        },
+
+        stateHeader = {
+            type  = "header",
+            name  = "Cooldown States",
+            order = 10,
+        },
+
+        showReady = {
+            type  = "toggle",
+            name  = "Show ready cooldowns",
+            desc  = "Display simple icons for spells that are available (not on cooldown).",
+            order = 11,
+            get   = function()
+                return RaidHelper.db.profile.elvui.showReady
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.elvui.showReady = val
+            end,
+        },
+
+        showActive = {
+            type  = "toggle",
+            name  = "Show active cooldowns (glowing)",
+            desc  = "Display glowing icons with cooldown swipes for spells currently on cooldown.",
+            order = 12,
+            get   = function()
+                return RaidHelper.db.profile.elvui.showActive
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.elvui.showActive = val
+            end,
+        },
+
+        layoutHeader = {
+            type  = "header",
+            name  = "Layout & Positioning",
+            order = 20,
+        },
+
+        anchorPoint = {
+            type   = "select",
+            name   = "Anchor point",
+            desc   = "Which corner/side of the ElvUI unit frame to attach the cooldown icons to.",
+            order  = 21,
+            values = {
+                TOPLEFT = "Top Left",
+                TOPRIGHT = "Top Right",
+                BOTTOMLEFT = "Bottom Left",
+                BOTTOMRIGHT = "Bottom Right",
+                CENTER = "Center",
+                TOP = "Top",
+                BOTTOM = "Bottom",
+                LEFT = "Left",
+                RIGHT = "Right",
+            },
+            get    = function()
+                return RaidHelper.db.profile.elvui.anchorPoint or "TOPRIGHT"
+            end,
+            set    = function(_, val)
+                RaidHelper.db.profile.elvui.anchorPoint = val
+            end,
+        },
+
+        orientation = {
+            type   = "select",
+            name   = "Orientation",
+            desc   = "Lay out multiple icons horizontally or vertically.",
+            order  = 22,
+            values = { Horizontal = "Horizontal", Vertical = "Vertical" },
+            get    = function()
+                return RaidHelper.db.profile.elvui.orientation or "Horizontal"
+            end,
+            set    = function(_, val)
+                RaidHelper.db.profile.elvui.orientation = val
+            end,
+        },
+
+        xOffset = {
+            type  = "range",
+            name  = "X Offset",
+            desc  = "Horizontal offset relative to the anchor point.",
+            order = 23,
+            min   = -100,
+            max   = 100,
+            step  = 1,
+            get   = function()
+                return RaidHelper.db.profile.elvui.xOffset or -2
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.elvui.xOffset = val
+            end,
+        },
+
+        yOffset = {
+            type  = "range",
+            name  = "Y Offset",
+            desc  = "Vertical offset relative to the anchor point.",
+            order = 24,
+            min   = -100,
+            max   = 100,
+            step  = 1,
+            get   = function()
+                return RaidHelper.db.profile.elvui.yOffset or -2
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.elvui.yOffset = val
+            end,
+        },
+
+        appearanceHeader = {
+            type  = "header",
+            name  = "Appearance",
+            order = 30,
+        },
+
+        iconSize = {
+            type  = "range",
+            name  = "Icon size",
+            desc  = "Size of each cooldown icon on the ElvUI unit frames.",
+            order = 31,
+            min   = 8,
+            max   = 40,
+            step  = 1,
+            get   = function()
+                return RaidHelper.db.profile.elvui.iconSize or 18
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.elvui.iconSize = val
+            end,
+        },
+
+        spacing = {
+            type  = "range",
+            name  = "Spacing",
+            desc  = "Spacing between individual cooldown icons.",
+            order = 32,
+            min   = 0,
+            max   = 10,
+            step  = 1,
+            get   = function()
+                return RaidHelper.db.profile.elvui.spacing or 2
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.elvui.spacing = val
+            end,
+        },
+
+        maxIcons = {
+            type  = "range",
+            name  = "Max icons shown",
+            desc  = "Maximum number of cooldown icons to display per ElvUI unit frame.",
+            order = 33,
+            min   = 1,
+            max   = 10,
+            step  = 1,
+            get   = function()
+                return RaidHelper.db.profile.elvui.maxIcons or 5
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.elvui.maxIcons = val
+            end,
+        },
+
+        glowColor = {
+            type     = "color",
+            name     = "Active glow color",
+            desc     = "Color of the pulsating glow border on active cooldowns.",
+            order    = 34,
+            hasAlpha = true,
+            get      = function()
+                local c = RaidHelper.db.profile.elvui.glowColor or { 1, 0.85, 0, 1 }
+                return c[1], c[2], c[3], c[4] or 1
+            end,
+            set      = function(_, r, g, b, a)
+                RaidHelper.db.profile.elvui.glowColor = { r, g, b, a }
+            end,
+        },
+
+        spellsHeader = {
+            type  = "header",
+            name  = "Tracked Spells",
+            order = 40,
+        },
+
+        enableAll = {
+            type  = "execute",
+            name  = "Enable all spells",
+            order = 41,
+            func  = function()
+                RaidHelper.db.profile.elvui.enabledSpells = RaidHelper:AllSpellsEnabled()
+            end,
+        },
+
+        disableAll = {
+            type  = "execute",
+            name  = "Disable all spells",
+            order = 42,
+            func  = function()
+                RaidHelper.db.profile.elvui.enabledSpells = {}
+            end,
+        },
+
+        spells = {
+            type   = "group",
+            name   = "Spells",
+            inline = true,
+            order  = 50,
+            args   = BuildElvUISpellArgs(),
+        },
+    }
+end
+
+-- ============================================================
 -- Root options table (built dynamically)
 -- ============================================================
 
@@ -1230,6 +1515,12 @@ local function BuildOptions()
                 name  = "Cooldown Notification",
                 order = 3,
                 args  = BuildNotificationArgs(),
+            },
+            elvui = {
+                type  = "group",
+                name  = "ElvUI Integration",
+                order = 4,
+                args  = BuildElvUIArgs(),
             },
         },
     }

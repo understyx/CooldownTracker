@@ -102,6 +102,21 @@ local defaults = {
             x           = 0,
             y           = 0,
         },
+        -- ElvUI integration settings.
+        elvui = {
+            enabled           = true,
+            showReady         = true,
+            showActive        = true,
+            iconSize          = 18,
+            anchorPoint       = "TOPRIGHT",
+            xOffset           = -2,
+            yOffset           = -2,
+            maxIcons          = 5,
+            spacing           = 2,
+            orientation       = "Horizontal",
+            glowColor         = { 1, 0.85, 0, 1 }, -- Gold glow
+            enabledSpells     = {},
+        },
     },
 }
 
@@ -785,6 +800,11 @@ function RaidHelper:GetActiveCooldowns(enabledSpells, roleFilter, spellRoleFilte
     return result
 end
 
+--- Returns the table of cooldowns for a given player name.
+function RaidHelper:GetUnitCooldowns(unitName)
+    return cdState[unitName]
+end
+
 --- Cached localized spell name.
 function RaidHelper:GetSpellDisplayName(spellID)
     if not spellNameCache[spellID] then
@@ -1235,6 +1255,15 @@ function RaidHelper:OnEnable()
         end
     end
 
+    -- Migrate elvui enabledSpells
+    self.db.profile.elvui = self.db.profile.elvui or {}
+    self.db.profile.elvui.enabledSpells = self.db.profile.elvui.enabledSpells or {}
+    for spellID in pairs(allSpells) do
+        if self.db.profile.elvui.enabledSpells[spellID] == nil then
+            self.db.profile.elvui.enabledSpells[spellID] = true
+        end
+    end
+
     -- Register the HomeCheck comm prefix for inter-addon cooldown sync.
     self:RegisterComm(HOMECHECK_PREFIX, "OnCommReceived")
     self:RegisterComm("oRA3",           "OnCommReceived")
@@ -1280,6 +1309,9 @@ function RaidHelper:OnEnable()
 
     -- Initialise the buff check window (defined in BuffCheck.lua).
     if ns.InitBuffCheck then ns.InitBuffCheck() end
+
+    -- Initialise the ElvUI integration (defined in ElvUI.lua).
+    if ns.InitElvUI then ns.InitElvUI() end
 
     -- Seed the roster with whoever is already in the group.
     RefreshRoster()

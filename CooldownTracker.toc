@@ -12,4 +12,5 @@ Core.lua
 Groups.lua
 Notification.lua
 BuffCheck.lua
+ElvUI.lua
 Config.lua
