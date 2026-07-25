@@ -115,6 +115,8 @@ local defaults = {
             spacing           = 2,
             orientation       = "Horizontal",
             glowColor         = { 1, 0.85, 0, 1 }, -- Gold glow
+            frameStrata       = "MEDIUM",
+            frameLevel        = 20,
             enabledSpells     = {},
         },
     },

@@ -172,6 +172,14 @@ local function Container_Update(self)
     self:ClearAllPoints()
     self:SetPoint(db.anchorPoint, parent, db.anchorPoint, db.xOffset, db.yOffset)
 
+    -- Apply user-configured frame strata and frame level
+    if db.frameStrata then
+        self:SetFrameStrata(db.frameStrata)
+    end
+    if db.frameLevel then
+        self:SetFrameLevel(db.frameLevel)
+    end
+
     local isHorizontal = db.orientation == "Horizontal"
     local size = db.iconSize or 18
     local spacing = db.spacing or 2
