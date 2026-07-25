@@ -1320,6 +1320,45 @@ local function BuildElvUIArgs()
             end,
         },
 
+        frameStrata = {
+            type   = "select",
+            name   = "Frame strata",
+            desc   = "Set the frame strata for the cooldown container frames.",
+            order  = 25,
+            values = {
+                BACKGROUND = "BACKGROUND",
+                LOW = "LOW",
+                MEDIUM = "MEDIUM",
+                HIGH = "HIGH",
+                DIALOG = "DIALOG",
+                FULLSCREEN = "FULLSCREEN",
+                FULLSCREEN_DIALOG = "FULLSCREEN_DIALOG",
+                TOOLTIP = "TOOLTIP",
+            },
+            get    = function()
+                return RaidHelper.db.profile.elvui.frameStrata or "MEDIUM"
+            end,
+            set    = function(_, val)
+                RaidHelper.db.profile.elvui.frameStrata = val
+            end,
+        },
+
+        frameLevel = {
+            type  = "range",
+            name  = "Frame level",
+            desc  = "Set the frame level for the cooldown container frames to control overlapping.",
+            order = 26,
+            min   = 1,
+            max   = 100,
+            step  = 1,
+            get   = function()
+                return RaidHelper.db.profile.elvui.frameLevel or 20
+            end,
+            set   = function(_, val)
+                RaidHelper.db.profile.elvui.frameLevel = val
+            end,
+        },
+
         appearanceHeader = {
             type  = "header",
             name  = "Appearance",
