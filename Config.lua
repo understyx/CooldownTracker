@@ -1218,29 +1218,21 @@ local function BuildElvUIArgs()
             order = 10,
         },
 
-        showReady = {
-            type  = "toggle",
-            name  = "Show ready cooldowns",
-            desc  = "Display simple icons for spells that are available (not on cooldown).",
-            order = 11,
-            get   = function()
-                return RaidHelper.db.profile.elvui.showReady
+        displayMode = {
+            type   = "select",
+            name   = "Display mode",
+            desc   = "Configure when the cooldown icons are displayed on the ElvUI unit frames.",
+            order  = 11,
+            values = {
+                always = "Show always [default]",
+                ready  = "Show only when cooldown is ready",
+                active = "Show only when cooldown is active",
+            },
+            get    = function()
+                return RaidHelper.db.profile.elvui.displayMode or "always"
             end,
-            set   = function(_, val)
-                RaidHelper.db.profile.elvui.showReady = val
-            end,
-        },
-
-        showActive = {
-            type  = "toggle",
-            name  = "Show active cooldowns (glowing)",
-            desc  = "Display glowing icons with cooldown swipes for spells currently on cooldown.",
-            order = 12,
-            get   = function()
-                return RaidHelper.db.profile.elvui.showActive
-            end,
-            set   = function(_, val)
-                RaidHelper.db.profile.elvui.showActive = val
+            set    = function(_, val)
+                RaidHelper.db.profile.elvui.displayMode = val
             end,
         },
 
@@ -1349,7 +1341,7 @@ local function BuildElvUIArgs()
             desc  = "Set the frame level for the cooldown container frames to control overlapping.",
             order = 26,
             min   = 1,
-            max   = 100,
+            max   = 10000,
             step  = 1,
             get   = function()
                 return RaidHelper.db.profile.elvui.frameLevel or 20
