@@ -105,8 +105,7 @@ local defaults = {
         -- ElvUI integration settings.
         elvui = {
             enabled           = true,
-            showReady         = true,
-            showActive        = true,
+            displayMode       = "always",
             iconSize          = 18,
             anchorPoint       = "TOPRIGHT",
             xOffset           = -2,

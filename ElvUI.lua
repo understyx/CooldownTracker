@@ -112,15 +112,18 @@ local function Container_Update(self)
     -- Collect and filter eligible cooldowns
     local list = {}
     local now = GetTime()
+    local mode = db.displayMode or "always"
     for spellID, info in pairs(cooldowns) do
         if db.enabledSpells[spellID] then
             local timeLeft = info.expTime and (info.expTime - now) or 0
             local isActive = timeLeft > 0
 
             local show = false
-            if isActive and db.showActive then
+            if mode == "always" then
                 show = true
-            elseif not isActive and db.showReady then
+            elseif mode == "ready" and not isActive then
+                show = true
+            elseif mode == "active" and isActive then
                 show = true
             end
 
